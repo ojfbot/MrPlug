@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  mrplug:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mrplug-builder
+    volumes:
+      - ./dist:/app/dist
+      - ./src:/app/src:ro
+    environment:
+      - NODE_ENV=production
+    command: pnpm build
