@@ -1,4 +1,4 @@
-import { beforeAll, afterEach } from 'vitest';
+import { beforeAll, afterEach, vi } from 'vitest';
 
 // Mock browser API
 const mockBrowser = {
@@ -42,6 +42,11 @@ const mockBrowser = {
     },
   },
 };
+
+// Mock webextension-polyfill module before it's imported
+vi.mock('webextension-polyfill', () => ({
+  default: mockBrowser,
+}));
 
 // @ts-ignore
 global.browser = mockBrowser;
