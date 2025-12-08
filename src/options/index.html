@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MrPlug Options</title>
+  <link rel="stylesheet" href="../styles/carbon-lite.css">
+  <style>
+    body {
+      background: var(--cds-layer-01);
+      padding: var(--cds-spacing-08);
+      min-height: 100vh;
+    }
+    .options-container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: var(--cds-spacing-08);
+    }
+    h1 {
+      margin-bottom: calc(var(--cds-spacing-08) * 2);
+      padding-bottom: var(--cds-spacing-06);
+      border-bottom: 1px solid var(--cds-border-subtle);
+    }
+    .options-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--cds-spacing-07);
+      margin-bottom: var(--cds-spacing-08);
+    }
+    @media (max-width: 1024px) {
+      .options-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .options-panel {
+      background: var(--cds-background);
+      padding: var(--cds-spacing-07);
+      border: 1px solid var(--cds-border-subtle);
+      display: flex;
+      flex-direction: column;
+    }
+    .section {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    .section h2 {
+      margin-bottom: var(--cds-spacing-05);
+      font-size: var(--cds-heading-03-font-size);
+    }
+    .section > p {
+      margin-bottom: var(--cds-spacing-06);
+      line-height: var(--cds-body-02-line-height);
+    }
+    .cds-form-item {
+      margin-bottom: var(--cds-spacing-06);
+    }
+    .actions-section {
+      background: var(--cds-background);
+      padding: var(--cds-spacing-07);
+      border: 1px solid var(--cds-border-subtle);
+      margin-bottom: var(--cds-spacing-08);
+    }
+    .button-group {
+      display: flex;
+      gap: var(--cds-spacing-05);
+    }
+    .footer-info {
+      padding: var(--cds-spacing-06);
+      font-size: 0.75rem;
+      color: var(--cds-text-secondary);
+      background: var(--cds-background);
+      border: 1px solid var(--cds-border-subtle);
+    }
+    .footer-info p {
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="./index.tsx"></script>
+</body>
+</html>
