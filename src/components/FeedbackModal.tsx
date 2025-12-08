@@ -1,0 +1,846 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Modal,
+  TextArea,
+  Loading,
+  InlineNotification,
+  Tag,
+} from '@carbon/react';
+import type { ElementContext, AIResponse, ConversationMessage, ClaudeCodePayload, ExtensionConfig } from '../types';
+import { ContextCapture } from '../lib/context-capture';
+import { Storage } from '../lib/storage';
+
+interface FeedbackModalProps {
+  isOpen: boolean;
+  elementContext: ElementContext | null;
+  selectedElement: Element | null;
+  elementScreenshot: string | null;
+  viewportScreenshot: string | null;
+  onClose: () => void;
+  onSubmit: (feedback: string, agentMode: 'ui' | 'ux') => Promise<AIResponse>;
+  onCreateIssue: (response: AIResponse) => Promise<void>;
+  onApplyFix: (response: AIResponse) => Promise<void>;
+}
+
+export function FeedbackModal({
+  isOpen,
+  elementContext,
+  selectedElement,
+  elementScreenshot,
+  viewportScreenshot,
+  onClose,
+  onSubmit,
+}: FeedbackModalProps) {
+  const [feedback, setFeedback] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [response, setResponse] = useState<AIResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string>('AI analysis not available (API key not configured)');
+  const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
+  const [agentMode, setAgentMode] = useState<'ui' | 'ux'>('ui');
+  const [hoveredMode, setHoveredMode] = useState<'ui' | 'ux' | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [contextData, setContextData] = useState<ClaudeCodePayload | null>(null);
+  const [viewingContext, setViewingContext] = useState<'dom' | 'redux' | 'console' | 'payload' | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<number[]>([]);
+  const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+  const currentMatchRef = React.useRef<HTMLSpanElement>(null);
+  const [config, setConfig] = useState<ExtensionConfig | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setFeedback('');
+      setResponse(null);
+      setError(null);
+      setStatusMessage('AI analysis not available (API key not configured)');
+      setPreviewImage(null);
+      setViewingContext(null);
+      setSearchQuery('');
+      setSearchResults([]);
+      setCurrentSearchIndex(0);
+    }
+  }, [isOpen]);
+
+  // Load config when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      Storage.getConfig().then(setConfig);
+    }
+  }, [isOpen]);
+
+  // Capture context data when modal opens with element
+  useEffect(() => {
+    if (isOpen && selectedElement) {
+      const captureContext = async () => {
+        try {
+          const payload = await ContextCapture.captureCompleteContext(
+            selectedElement,
+            '',
+            undefined,
+            conversationHistory
+          );
+          setContextData(payload);
+          console.log('[MrPlug] Captured context data:', payload);
+        } catch (err) {
+          console.warn('[MrPlug] Failed to capture context:', err);
+        }
+      };
+      captureContext();
+    }
+  }, [isOpen, selectedElement, conversationHistory]);
+
+  // Handle ESC key to close preview first, then modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        setPreviewImage(null);
+      }
+    };
+
+    if (previewImage && isOpen) {
+      // Capture event before Modal can see it
+      window.addEventListener('keydown', handleKeyDown, { capture: true });
+      return () => {
+        window.removeEventListener('keydown', handleKeyDown, { capture: true });
+      };
+    }
+  }, [previewImage, isOpen]);
+
+  // Handle Cmd+F / Ctrl+F for in-context search
+  useEffect(() => {
+    const handleSearchKeydown = (e: KeyboardEvent) => {
+      // Cmd+F on Mac or Ctrl+F on Windows/Linux
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f' && viewingContext) {
+        e.preventDefault();
+        e.stopPropagation();
+        // Focus will be handled by the search input when it appears
+        const searchInput = document.querySelector('.context-search-input') as HTMLInputElement;
+        if (searchInput) {
+          searchInput.focus();
+        }
+      }
+    };
+
+    if (viewingContext && isOpen) {
+      window.addEventListener('keydown', handleSearchKeydown, { capture: true });
+      return () => {
+        window.removeEventListener('keydown', handleSearchKeydown, { capture: true });
+      };
+    }
+  }, [viewingContext, isOpen]);
+
+  // Perform search when query changes
+  useEffect(() => {
+    if (!searchQuery || !viewingContext) {
+      setSearchResults([]);
+      setCurrentSearchIndex(0);
+      return;
+    }
+
+    const getContextText = () => {
+      if (viewingContext === 'dom') return JSON.stringify(contextData?.relevantDOM, null, 2);
+      if (viewingContext === 'redux') return JSON.stringify(contextData?.reduxState, null, 2);
+      if (viewingContext === 'console') return JSON.stringify(contextData?.consoleLogs, null, 2);
+      if (viewingContext === 'payload') return JSON.stringify(contextData, null, 2);
+      return '';
+    };
+
+    const text = getContextText().toLowerCase();
+    const query = searchQuery.toLowerCase();
+    const results: number[] = [];
+    let index = 0;
+
+    while (index !== -1) {
+      index = text.indexOf(query, index);
+      if (index !== -1) {
+        results.push(index);
+        index += query.length;
+      }
+    }
+
+    setSearchResults(results);
+    setCurrentSearchIndex(0);
+  }, [searchQuery, viewingContext, contextData]);
+
+  // Auto-focus scroll container when viewing context
+  useEffect(() => {
+    if (viewingContext && scrollContainerRef.current) {
+      // Small delay to ensure DOM is ready
+      setTimeout(() => {
+        scrollContainerRef.current?.focus();
+      }, 100);
+    }
+  }, [viewingContext]);
+
+  // Scroll to current match when search index changes
+  useEffect(() => {
+    if (currentMatchRef.current && searchResults.length > 0) {
+      currentMatchRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }
+  }, [currentSearchIndex, searchResults]);
+
+  const handleSubmit = async () => {
+    if (!feedback.trim()) return;
+
+    setLoading(true);
+    setError(null);
+    setStatusMessage('Analyzing feedback...');
+
+    try {
+      const aiResponse = await onSubmit(feedback, agentMode);
+      setResponse(aiResponse);
+
+      const userMessage: ConversationMessage = {
+        role: 'user',
+        content: feedback,
+        timestamp: Date.now(),
+      };
+
+      const assistantMessage: ConversationMessage = {
+        role: 'assistant',
+        content: aiResponse.analysis,
+        timestamp: Date.now(),
+      };
+
+      setConversationHistory([...conversationHistory, userMessage, assistantMessage]);
+      setFeedback('');
+
+      if (aiResponse.confidence > 0) {
+        setStatusMessage(`Analysis complete (${Math.round(aiResponse.confidence * 100)}% confidence)`);
+      } else {
+        setStatusMessage('Context captured successfully');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+      setStatusMessage('Analysis failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Submit on Enter (without shift)
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+    // Allow Shift+Enter for new line (default behavior)
+  };
+
+
+  const getActionIcon = (type: string) => {
+    switch (type) {
+      case 'github-issue': return '📋';
+      case 'claude-code': return '🤖';
+      case 'manual': return '✋';
+      default: return '•';
+    }
+  };
+
+  const getActionColor = (priority: string) => {
+    switch (priority) {
+      case 'high': return '#da1e28';
+      case 'medium': return '#f1c21b';
+      case 'low': return '#24a148';
+      default: return '#4589ff';
+    }
+  };
+
+  const getThumbnailHeight = () => {
+    if (!elementContext) return 60;
+    // Two lines of text ~ 60px, scale element screenshot to fit
+    return Math.min(elementContext.boundingRect.height, 60);
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <>
+    <Modal
+      open={isOpen}
+      onRequestClose={onClose}
+      modalHeading="Feedback Assistant"
+      primaryButtonText="Send"
+      secondaryButtonText="Close"
+      onRequestSubmit={handleSubmit}
+      primaryButtonDisabled={!feedback.trim() || loading}
+      size="lg"
+    >
+      <div style={{ marginBottom: '1rem', minHeight: '400px', display: 'flex', flexDirection: 'column' }}>
+
+        {/* Status Bar with Connection Links */}
+        <div style={{
+          marginBottom: '0.75rem',
+          padding: '0.5rem 0.75rem',
+          background: 'var(--cds-layer-accent-01)',
+          borderRadius: '4px',
+          fontSize: '0.75rem',
+          color: 'var(--cds-text-secondary)',
+          minHeight: '32px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+        }}>
+          {loading && (
+            <div style={{ marginRight: '0.25rem' }}>
+              <Loading description="" withOverlay={false} small />
+            </div>
+          )}
+
+          {/* Connection Status */}
+          {config ? (
+            <>
+              {config.llmProvider && (config.openaiApiKey || config.anthropicApiKey) ? (
+                <span>{config.llmProvider === 'openai' ? 'OpenAI' : 'Claude'}</span>
+              ) : (
+                <span style={{ color: 'var(--cds-text-error)' }}>AI not configured</span>
+              )}
+
+              {config.githubToken && config.githubRepo && (
+                <>
+                  <span>;</span>
+                  <span>GitHub: {config.githubRepo.split('/').pop()}</span>
+                </>
+              )}
+
+              {config.claudeCodeEnabled && (
+                <>
+                  <span>;</span>
+                  <span>Claude Code</span>
+                </>
+              )}
+
+              {loading && <span style={{ marginLeft: '0.25rem' }}>— {statusMessage}</span>}
+            </>
+          ) : (
+            <span>{statusMessage}</span>
+          )}
+        </div>
+
+        {error && (
+          <InlineNotification
+            kind="error"
+            title="Error"
+            subtitle={error}
+            onCloseButtonClick={() => setError(null)}
+            style={{ marginBottom: '0.75rem' }}
+          />
+        )}
+
+        {/* Conversation History / Context Viewer - Fixed Height */}
+        <div
+          style={{
+            marginBottom: '0.75rem',
+            height: '250px',
+            background: 'var(--cds-layer-01)',
+            border: '1px solid var(--cds-border-subtle)',
+            borderRadius: '4px',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          {viewingContext ? (
+            // Context Data Viewer
+            <>
+              {/* Sticky Search Header */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.75rem',
+                paddingBottom: '0.5rem',
+                borderBottom: '1px solid var(--cds-border-subtle)',
+                background: 'var(--cds-layer-01)',
+                position: 'sticky',
+                top: 0,
+                zIndex: 1,
+              }}>
+                <Tag type="purple" size="sm">
+                  {viewingContext === 'dom' ? 'DOM Context' :
+                   viewingContext === 'redux' ? 'Redux State' :
+                   viewingContext === 'console' ? 'Console Logs' : 'Full Payload'}
+                </Tag>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flex: 1 }}>
+                  <input
+                    type="text"
+                    className="context-search-input"
+                    placeholder="Search (Cmd+F)..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{
+                      flex: 1,
+                      padding: '0.25rem 0.5rem',
+                      fontSize: '0.75rem',
+                      border: '1px solid var(--cds-border-subtle)',
+                      borderRadius: '2px',
+                      background: 'var(--cds-field-01)',
+                      color: 'var(--cds-text-primary)',
+                    }}
+                  />
+                  {searchResults.length > 0 && (
+                    <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--cds-text-secondary)', whiteSpace: 'nowrap' }}>
+                        {currentSearchIndex + 1} / {searchResults.length}
+                      </span>
+                      <button
+                        onClick={() => setCurrentSearchIndex((currentSearchIndex - 1 + searchResults.length) % searchResults.length)}
+                        style={{
+                          padding: '0.125rem 0.25rem',
+                          fontSize: '0.75rem',
+                          border: '1px solid var(--cds-border-subtle)',
+                          borderRadius: '2px',
+                          background: 'var(--cds-layer-01)',
+                          color: 'var(--cds-text-primary)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        onClick={() => setCurrentSearchIndex((currentSearchIndex + 1) % searchResults.length)}
+                        style={{
+                          padding: '0.125rem 0.25rem',
+                          fontSize: '0.75rem',
+                          border: '1px solid var(--cds-border-subtle)',
+                          borderRadius: '2px',
+                          background: 'var(--cds-layer-01)',
+                          color: 'var(--cds-text-primary)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ↓
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setViewingContext(null);
+                    setSearchQuery('');
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--cds-text-secondary)',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Back to conversation
+                </button>
+              </div>
+
+              {/* Scrollable Content Area */}
+              <div
+                ref={scrollContainerRef}
+                tabIndex={0}
+                style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  padding: '0.75rem',
+                  outline: 'none',
+                }}
+              >
+                <pre style={{
+                  fontSize: '0.75rem',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  color: 'var(--cds-text-primary)',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  margin: 0,
+                }}>
+                {(() => {
+                  const text = viewingContext === 'dom' ? JSON.stringify(contextData?.relevantDOM, null, 2) :
+                               viewingContext === 'redux' ? JSON.stringify(contextData?.reduxState, null, 2) :
+                               viewingContext === 'console' ? JSON.stringify(contextData?.consoleLogs, null, 2) :
+                               JSON.stringify(contextData, null, 2);
+
+                  if (!searchQuery || searchResults.length === 0) {
+                    return text;
+                  }
+
+                  // Highlight search results
+                  const parts: (string | JSX.Element)[] = [];
+                  let lastIndex = 0;
+
+                  searchResults.forEach((resultIndex, idx) => {
+                    // Add text before match
+                    if (resultIndex > lastIndex) {
+                      parts.push(text.substring(lastIndex, resultIndex));
+                    }
+
+                    // Add highlighted match
+                    const isCurrentMatch = idx === currentSearchIndex;
+                    parts.push(
+                      <span
+                        key={idx}
+                        ref={isCurrentMatch ? currentMatchRef : null}
+                        style={{
+                          background: isCurrentMatch ? '#ffa500' : '#ffff00',
+                          color: '#000',
+                          fontWeight: isCurrentMatch ? 'bold' : 'normal',
+                        }}
+                      >
+                        {text.substring(resultIndex, resultIndex + searchQuery.length)}
+                      </span>
+                    );
+
+                    lastIndex = resultIndex + searchQuery.length;
+                  });
+
+                  // Add remaining text
+                  if (lastIndex < text.length) {
+                    parts.push(text.substring(lastIndex));
+                  }
+
+                  return parts;
+                })()}
+                </pre>
+              </div>
+            </>
+          ) : (
+            // Conversation History
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '0.75rem',
+            }}>
+              {conversationHistory.length === 0 ? (
+                <div style={{
+                  height: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--cds-text-placeholder)',
+                  fontSize: '0.875rem',
+                }}>
+                  No conversation history yet
+                </div>
+              ) : (
+                conversationHistory.map((msg, idx) => (
+                  <div key={idx} style={{ marginBottom: '0.75rem' }}>
+                    <Tag type={msg.role === 'user' ? 'blue' : 'green'} size="sm">
+                      {msg.role}
+                    </Tag>
+                    <div style={{
+                      marginTop: '0.25rem',
+                      fontSize: '0.875rem',
+                      color: 'var(--cds-text-primary)',
+                      lineHeight: '1.4',
+                    }}>
+                      {msg.content}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Agent Mode Toggle */}
+        <div style={{
+          marginBottom: '0.75rem',
+          display: 'flex',
+          gap: '0.5rem',
+          alignItems: 'center',
+          position: 'relative',
+        }}>
+          <span style={{ fontSize: '0.875rem', fontWeight: 400, color: 'var(--cds-text-secondary)' }}>
+            Agent Mode:
+          </span>
+          <div style={{ display: 'flex', gap: '0.25rem', padding: '2px', background: 'var(--cds-layer-01)', borderRadius: '4px' }}>
+            <button
+              onClick={() => setAgentMode('ui')}
+              onMouseEnter={() => setHoveredMode('ui')}
+              onMouseLeave={() => setHoveredMode(null)}
+              style={{
+                padding: '0.375rem 0.75rem',
+                fontSize: '0.875rem',
+                fontWeight: 500,
+                border: 'none',
+                borderRadius: '2px',
+                cursor: 'pointer',
+                background: agentMode === 'ui' ? 'var(--cds-interactive)' : 'transparent',
+                color: agentMode === 'ui' ? 'var(--cds-text-on-color)' : 'var(--cds-text-primary)',
+                transition: 'all 0.11s',
+              }}
+            >
+              UI Expert
+            </button>
+            <button
+              onClick={() => setAgentMode('ux')}
+              onMouseEnter={() => setHoveredMode('ux')}
+              onMouseLeave={() => setHoveredMode(null)}
+              style={{
+                padding: '0.375rem 0.75rem',
+                fontSize: '0.875rem',
+                fontWeight: 500,
+                border: 'none',
+                borderRadius: '2px',
+                cursor: 'pointer',
+                background: agentMode === 'ux' ? 'var(--cds-interactive)' : 'transparent',
+                color: agentMode === 'ux' ? 'var(--cds-text-on-color)' : 'var(--cds-text-primary)',
+                transition: 'all 0.11s',
+              }}
+            >
+              UX Expert
+            </button>
+          </div>
+          {/* Popover on hover */}
+          {hoveredMode && (
+            <div style={{
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              marginTop: '0.5rem',
+              padding: '0.75rem',
+              background: 'var(--cds-background)',
+              border: '1px solid var(--cds-border-subtle)',
+              borderRadius: '4px',
+              fontSize: '0.75rem',
+              color: 'var(--cds-text-primary)',
+              maxWidth: '300px',
+              zIndex: 9999,
+              boxShadow: '0 2px 6px rgba(0, 0, 0, 0.3)',
+            }}>
+              {hoveredMode === 'ui' ? (
+                <>
+                  <strong>UI Expert Mode:</strong> Focus on specific styling, layout, colors, spacing, and browser flow.
+                  Perfect for visual refinements and CSS/styling issues.
+                </>
+              ) : (
+                <>
+                  <strong>UX Expert Mode:</strong> Focus on product requirements, user workflows, feature stories, and implementation planning.
+                  Perfect for new features, product improvements, and complex user journeys.
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Text Input */}
+        <div style={{ position: 'relative', flexGrow: 1 }}>
+          <TextArea
+            labelText={agentMode === 'ui' ? 'Describe the UI issue or desired change' : 'Describe the feature or user experience goal'}
+            placeholder={
+              agentMode === 'ui'
+                ? "e.g., 'This button should be larger', 'The spacing is too tight', 'Change the color to match the brand'"
+                : "e.g., 'This menu should allow users to launch new apps via natural language', 'Add a workflow for users to create custom dashboards', 'Implement a feature to save user preferences'"
+            }
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            onKeyDown={handleKeyDown}
+            rows={4}
+            disabled={loading}
+          />
+        </div>
+
+        {/* Row: Badge Buttons (Left) and Screenshots (Right) */}
+        <div style={{
+          marginTop: '0.5rem',
+          marginBottom: '0.5rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: '1rem',
+          minHeight: '32px',
+        }}>
+          {/* Left: Badge Buttons */}
+          <div style={{
+            display: 'flex',
+            gap: '0.5rem',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            flex: 1,
+          }}>
+            {response?.suggestedActions && response.suggestedActions.length > 0 ? (
+              response.suggestedActions.map((action, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.25rem',
+                    padding: '0.25rem 0.75rem',
+                    borderRadius: '12px',
+                    fontSize: '0.75rem',
+                    fontWeight: 500,
+                    background: getActionColor(action.priority),
+                    color: '#ffffff',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.3)',
+                  }}
+                >
+                  <span>{getActionIcon(action.type)}</span>
+                  <span>{action.title}</span>
+                </div>
+              ))
+            ) : (
+              <div style={{ height: '32px' }} />
+            )}
+          </div>
+
+          {/* Right: Screenshot Thumbnails and Context Data Badges */}
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            {/* Context Data Badges */}
+            {contextData?.relevantDOM && (
+              <button
+                title="DOM Context"
+                onClick={() => setViewingContext(viewingContext === 'dom' ? null : 'dom')}
+                style={{
+                  padding: '0.375rem 0.5rem',
+                  fontSize: '0.875rem',
+                  border: '1px solid var(--cds-border-subtle)',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  background: viewingContext === 'dom' ? 'var(--cds-interactive)' : 'var(--cds-layer-01)',
+                  color: viewingContext === 'dom' ? 'var(--cds-text-on-color)' : 'var(--cds-text-primary)',
+                  transition: 'all 0.11s',
+                }}
+              >
+                📄 DOM
+              </button>
+            )}
+            {contextData?.reduxState?.available && (
+              <button
+                title="Redux State"
+                onClick={() => setViewingContext(viewingContext === 'redux' ? null : 'redux')}
+                style={{
+                  padding: '0.375rem 0.5rem',
+                  fontSize: '0.875rem',
+                  border: '1px solid var(--cds-border-subtle)',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  background: viewingContext === 'redux' ? 'var(--cds-interactive)' : 'var(--cds-layer-01)',
+                  color: viewingContext === 'redux' ? 'var(--cds-text-on-color)' : 'var(--cds-text-primary)',
+                  transition: 'all 0.11s',
+                }}
+              >
+                🗄️ Redux
+              </button>
+            )}
+            {contextData?.consoleLogs && (
+              <button
+                title="Console Logs"
+                onClick={() => setViewingContext(viewingContext === 'console' ? null : 'console')}
+                style={{
+                  padding: '0.375rem 0.5rem',
+                  fontSize: '0.875rem',
+                  border: '1px solid var(--cds-border-subtle)',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  background: viewingContext === 'console' ? 'var(--cds-interactive)' : 'var(--cds-layer-01)',
+                  color: viewingContext === 'console' ? 'var(--cds-text-on-color)' : 'var(--cds-text-primary)',
+                  transition: 'all 0.11s',
+                }}
+              >
+                📋 Console
+              </button>
+            )}
+            {contextData && (
+              <button
+                title="Full Payload"
+                onClick={() => setViewingContext(viewingContext === 'payload' ? null : 'payload')}
+                style={{
+                  padding: '0.375rem 0.5rem',
+                  fontSize: '0.875rem',
+                  border: '1px solid var(--cds-border-subtle)',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  background: viewingContext === 'payload' ? 'var(--cds-interactive)' : 'var(--cds-layer-01)',
+                  color: viewingContext === 'payload' ? 'var(--cds-text-on-color)' : 'var(--cds-text-primary)',
+                  transition: 'all 0.11s',
+                }}
+              >
+                📦 Payload
+              </button>
+            )}
+
+            {/* Screenshot Thumbnails */}
+            {elementScreenshot && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
+                <img
+                  src={elementScreenshot}
+                  alt="Element screenshot"
+                  onClick={() => setPreviewImage(elementScreenshot)}
+                  style={{
+                    height: `${getThumbnailHeight()}px`,
+                    width: 'auto',
+                    maxWidth: '100px',
+                    border: '1px solid var(--cds-border-subtle)',
+                    borderRadius: '2px',
+                    objectFit: 'contain',
+                    cursor: 'pointer',
+                  }}
+                />
+                <span style={{ fontSize: '0.625rem', color: 'var(--cds-text-secondary)' }}>Element</span>
+              </div>
+            )}
+            {viewportScreenshot && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
+                <img
+                  src={viewportScreenshot}
+                  alt="Viewport screenshot"
+                  onClick={() => setPreviewImage(viewportScreenshot)}
+                  style={{
+                    height: '60px',
+                    width: 'auto',
+                    maxWidth: '100px',
+                    border: '1px solid var(--cds-border-subtle)',
+                    borderRadius: '2px',
+                    objectFit: 'contain',
+                    cursor: 'pointer',
+                  }}
+                />
+                <span style={{ fontSize: '0.625rem', color: 'var(--cds-text-secondary)' }}>Viewport</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </Modal>
+
+    {/* Image Preview Modal */}
+    {previewImage && (
+      <div
+        onClick={() => setPreviewImage(null)}
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.9)',
+          zIndex: 1000001,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          padding: '2rem',
+        }}
+      >
+        <img
+          src={previewImage}
+          alt="Screenshot preview"
+          style={{
+            maxWidth: '90%',
+            maxHeight: '90%',
+            objectFit: 'contain',
+            border: '2px solid var(--cds-border-subtle)',
+            borderRadius: '4px',
+          }}
+        />
+      </div>
+    )}
+  </>
+  );
+}
