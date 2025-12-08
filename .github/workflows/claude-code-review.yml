@@ -2,7 +2,11 @@ name: Claude Code Review
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, reopened]
+    # Cost control: Only run on opened/reopened, not synchronize
+    # This prevents running on every push to PR
+    # Re-run manually if needed for updated code
+
     # Optional: Only run on specific file changes
     # paths:
     #   - "src/**/*.ts"
@@ -12,11 +16,15 @@ on:
 
 jobs:
   claude-review:
+    # Skip draft PRs to save costs
+    if: github.event.pull_request.draft == false
+
     # Optional: Filter by PR author
     # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
+    #   github.event.pull_request.draft == false &&
+    #   (github.event.pull_request.user.login == 'external-contributor' ||
     #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR')
 
     runs-on: ubuntu-latest
     permissions:
