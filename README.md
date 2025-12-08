@@ -658,7 +658,7 @@ A: Most common causes:
 See [Troubleshooting - AI Analysis Failing](#ai-analysis-failing) for detailed solutions.
 
 **Q: I found a bug. How do I report it?**
-A: Please [open a GitHub issue](https://github.com/yourusername/mrplug/issues/new) with:
+A: Please [open a GitHub issue](https://github.com/ojfbot/MrPlug/issues/new) with:
 - Browser and version
 - Steps to reproduce
 - Expected vs actual behavior
@@ -671,9 +671,9 @@ MIT License - see LICENSE file for details
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/mrplug/issues)
+- **Issues**: [GitHub Issues](https://github.com/ojfbot/MrPlug/issues)
 - **Documentation**: This README and inline code comments
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/mrplug/discussions)
+- **Discussions**: [GitHub Discussions](https://github.com/ojfbot/MrPlug/discussions)
 
 ## Acknowledgments
 
