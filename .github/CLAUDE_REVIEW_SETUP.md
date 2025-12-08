@@ -97,7 +97,7 @@ Common failure reasons:
 
 Current configuration:
 
-- **Model**: `claude-sonnet-4-20250514` (Claude Sonnet 4)
+- **Model**: `claude-sonnet-4-5-20250929` (Claude Sonnet 4.5 - latest)
 - **Max Tokens**: 8,192 (comprehensive reviews)
 - **API Version**: `2023-06-01`
 
