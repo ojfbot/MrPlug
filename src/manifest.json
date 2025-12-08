@@ -7,14 +7,12 @@
     "activeTab",
     "storage",
     "scripting",
-    "tabs",
-    "tabCapture"
+    "tabs"
   ],
   "host_permissions": [
     "http://localhost/*",
     "http://127.0.0.1/*",
-    "https://api.github.com/*",
-    "<all_urls>"
+    "https://api.github.com/*"
   ],
   "background": {
     "service_worker": "src/background/index.ts",
