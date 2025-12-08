@@ -1,17 +1,96 @@
 # MrPlug - AI-Powered UI Feedback Assistant
 
+<div align="center">
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.5-blue.svg)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-20.18.1-green.svg)](https://nodejs.org/)
+[![React](https://img.shields.io/badge/React-18-61DAFB.svg)](https://reactjs.org/)
+[![Vite](https://img.shields.io/badge/Vite-5-646CFF.svg)](https://vitejs.dev/)
+[![pnpm](https://img.shields.io/badge/pnpm-8.15.0-orange.svg)](https://pnpm.io/)
+
+**Transform UI feedback into actionable development tasks with AI**
+
+[Features](#features) • [Installation](#installation) • [Usage](#usage) • [Documentation](#documentation) • [Contributing](#contributing)
+
+</div>
+
+---
+
 MrPlug is a browser extension that enables developers, designers, and project managers to provide natural language feedback on UI elements and automatically generate GitHub issues or apply code fixes through Claude Code integration.
+
+## Demo
+
+### How It Works
+
+1. **Navigate** to your localhost development app (e.g., `http://localhost:3000`)
+2. **Press** `Alt+Shift+F` (or `MacCtrl+Shift+F` on macOS) to activate feedback mode
+3. **Click** any UI element (button, input, div, card, etc.)
+4. **Describe** what needs to change: _"This button is too small"_, _"spacing is off"_, _"should be blue"_
+5. **Review** AI-generated analysis with actionable suggestions
+6. **Choose** an action:
+   - 📝 Create GitHub Issue with full context
+   - ⚡ Apply Fix via Claude Code
+   - 💬 Continue conversation to refine
+
+### Example Feedback Scenarios
+
+```
+💬 "This button should be bigger and match our brand blue"
+   → AI suggests: Increase padding, change background-color to #0066CC
+
+💬 "The spacing between these cards is too tight"
+   → AI suggests: Increase gap property from 8px to 16px, update grid-gap
+
+💬 "This should expand into a login form when clicked"
+   → AI creates: Feature story with acceptance criteria for GitHub
+
+💬 "Move this to the right side and make it sticky"
+   → AI suggests: Add position: sticky, right: 0, top: 0
+```
+
+## Table of Contents
+
+- [Demo](#demo)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Docker Development](#docker-development)
+- [Testing](#testing)
+- [Development](#development)
+- [Security](#security)
+- [Claude Code Integration](#claude-code-integration)
+- [GitHub Integration](#github-integration)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [Roadmap](#roadmap)
+- [License](#license)
 
 ## Features
 
-- **Element Selection**: Use keyboard shortcuts (Alt+Shift+F or Alt+Shift+Click) to select any element on localhost development sites
-- **Natural Language Feedback**: Describe UI issues in plain English ("this button should be bigger", "spacing is off", etc.)
-- **AI-Powered Analysis**: LangChain-backed AI agent analyzes your feedback and suggests actionable solutions
-- **IBM Carbon Design System**: Clean, professional UI built with IBM Carbon components
-- **GitHub Integration**: Automatically create well-structured GitHub issues with element context and screenshots
-- **Claude Code Integration**: Send code modification commands directly to Claude Code/CLI for instant fixes
-- **Conversation History**: Multi-turn conversations to refine feedback and solutions
-- **Secure by Design**: API keys stored securely, no hardcoded secrets, comprehensive .gitignore
+### Core Capabilities
+
+- 🎯 **Element Selection**: Use keyboard shortcuts (`Alt+Shift+F` or `Alt+Shift+Click`) to select any element on localhost development sites
+- 💬 **Natural Language Feedback**: Describe UI issues in plain English ("this button should be bigger", "spacing is off", etc.)
+- 🤖 **AI-Powered Analysis**: LangChain-backed AI agent analyzes your feedback and suggests actionable solutions
+- 🎨 **IBM Carbon Design System**: Clean, professional UI built with IBM Carbon components
+- 📝 **GitHub Integration**: Automatically create well-structured GitHub issues with element context and screenshots
+- ⚡ **Claude Code Integration**: Send code modification commands directly to Claude Code/CLI for instant fixes
+- 💭 **Conversation History**: Multi-turn conversations to refine feedback and solutions
+- 🔒 **Secure by Design**: API keys stored securely, no hardcoded secrets, comprehensive .gitignore
+
+### What AI Can Analyze
+
+| Category | Examples |
+|----------|----------|
+| **Styling Issues** | Colors, fonts, sizes, opacity, shadows, borders |
+| **Layout Problems** | Positioning, alignment, spacing, grid/flex issues |
+| **Responsive Design** | Mobile breakpoints, viewport issues, overflow |
+| **Feature Requests** | New components, interactions, state management |
+| **UX Feedback** | Accessibility, usability, performance, interactions |
+| **Component Issues** | Props, rendering, conditional logic, event handlers |
 
 ## Architecture
 
@@ -34,6 +113,78 @@ mrplug/
 ├── Dockerfile             # Container configuration
 ├── docker-compose.yml     # Development environment
 └── vite.config.ts         # Build configuration
+```
+
+### Technology Stack
+
+| Layer | Technology | Purpose |
+|-------|------------|---------|
+| **Runtime** | Node.js 20.18.1 | JavaScript runtime environment |
+| **Package Manager** | pnpm 8.15.0 | Fast, efficient dependency management |
+| **Language** | TypeScript 5.5 (strict) | Type-safe development |
+| **Build Tool** | Vite 5 | Fast HMR and optimized production builds |
+| **UI Framework** | React 18 | Component-based UI development |
+| **Design System** | IBM Carbon | Professional, accessible UI components |
+| **AI Framework** | LangChain.js | LLM abstraction and structured outputs |
+| **LLM Provider** | OpenAI GPT-4 | Natural language understanding and analysis |
+| **GitHub API** | Octokit REST | Repository and issue management |
+| **Testing** | Vitest | Fast, modern test runner with Vite integration |
+| **Browser Extension** | Manifest V3 | Modern browser extension API |
+| **Containerization** | Docker | Consistent development environment |
+
+### Data Flow
+
+```
+┌─────────────────┐
+│   User Action   │ Press Alt+Shift+F, Click Element
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Content Script  │ Inject overlay, capture element context
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Element Context │ DOM path, styles, dimensions, parent info
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  User Feedback  │ Natural language description
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Background      │ Message passing to service worker
+│ Service Worker  │
+└────────┬────────┘
+         │
+         ├──────────────────┬──────────────────┐
+         ▼                  ▼                  ▼
+┌─────────────────┐  ┌─────────────┐  ┌──────────────┐
+│  Browser Storage│  │  OpenAI API │  │ GitHub API   │
+│  (API Keys)     │  │  (Analysis) │  │ (Issues)     │
+└─────────────────┘  └──────┬──────┘  └──────┬───────┘
+                            │                │
+                            ▼                ▼
+                     ┌─────────────┐  ┌──────────────┐
+                     │ AI Response │  │ Issue Created│
+                     │ (JSON)      │  │ (URL)        │
+                     └──────┬──────┘  └──────────────┘
+                            │
+                            ▼
+                     ┌─────────────┐
+                     │  Suggested  │
+                     │   Actions   │
+                     └──────┬──────┘
+                            │
+         ┌──────────────────┼──────────────────┐
+         ▼                  ▼                  ▼
+┌─────────────────┐  ┌─────────────┐  ┌──────────────┐
+│ Create GitHub   │  │ Send to     │  │ Manual       │
+│ Issue           │  │ Claude Code │  │ Review       │
+└─────────────────┘  └─────────────┘  └──────────────┘
 ```
 
 ## Prerequisites
@@ -372,26 +523,147 @@ Created issues include:
 
 ## Roadmap
 
-### MVP (Current)
+### v0.1.0 - MVP (Current ✅)
 
 - ✅ Element selection and context capture
-- ✅ AI-powered feedback analysis
-- ✅ GitHub issue creation
-- ✅ Claude Code integration
-- ✅ IBM Carbon UI
+- ✅ AI-powered feedback analysis (OpenAI GPT-4)
+- ✅ GitHub issue creation with full context
+- ✅ Claude Code integration (localStorage bridge)
+- ✅ IBM Carbon Design UI
 - ✅ Localhost-only support
+- ✅ Behavior-driven testing
+- ✅ Docker development support
+- ✅ Comprehensive documentation
 
-### Future Enhancements
+### v0.2.0 - Multi-Browser Support
 
-- [ ] Multi-browser support (Firefox, Safari)
-- [ ] Screenshot editing and annotation
-- [ ] Team collaboration features
+- [ ] Firefox extension (Manifest V3 compatibility)
+- [ ] Safari extension support
+- [ ] Cross-browser testing suite
+- [ ] Browser-specific optimizations
+- [ ] Unified build pipeline
+
+### v0.3.0 - Enhanced Feedback
+
+- [ ] Screenshot editing and annotation tools
+- [ ] Multi-element selection mode
+- [ ] Visual diff comparison
+- [ ] Custom element selectors (CSS, XPath)
+- [ ] Feedback templates library
+- [ ] Batch feedback submission
+
+### v0.4.0 - AI & Integrations
+
+- [ ] Anthropic Claude API integration
+- [ ] Local LLM support (Ollama, LM Studio)
+- [ ] Custom prompt templates
 - [ ] Integration with Linear, Jira, Asana
-- [ ] Custom AI model support (Anthropic Claude, local models)
-- [ ] Visual regression testing integration
-- [ ] Figma/design tool integration
+- [ ] Slack/Discord notifications
+- [ ] MCP (Model Context Protocol) server
+
+### v0.5.0 - Team Collaboration
+
+- [ ] Shared feedback workspace
+- [ ] Team member assignment
+- [ ] Feedback approval workflow
+- [ ] Activity feed and analytics
+- [ ] Role-based permissions
+- [ ] Team settings management
+
+### v1.0.0 - Production Ready
+
 - [ ] Domain whitelist for production sites
 - [ ] Mobile device testing support
+- [ ] Browser DevTools panel integration
+- [ ] Figma/Sketch design integration
+- [ ] Visual regression testing
+- [ ] Enterprise features (SSO, audit logs)
+- [ ] Chrome Web Store / Firefox Add-ons listing
+- [ ] Professional marketing site
+
+## FAQ
+
+### General Questions
+
+**Q: Does MrPlug work on production websites?**
+A: Currently no. MrPlug v0.1.0 only works on `localhost` and `127.0.0.1` for security reasons. Production site support with domain whitelisting is planned for v1.0.0.
+
+**Q: Which browsers are supported?**
+A: Chrome, Edge, and Brave (Chromium-based browsers with Manifest V3). Firefox and Safari support is coming in v0.2.0.
+
+**Q: Is my feedback data stored or sent anywhere?**
+A: Conversation history is stored locally in your browser's encrypted storage. The only external data transmission is to OpenAI API (for AI analysis) and GitHub API (if you create issues). No data is sent to MrPlug servers because there are none!
+
+**Q: Can I use this with my team?**
+A: Not yet in v0.1.0. Team collaboration features (shared workspaces, assignments, approvals) are planned for v0.5.0.
+
+### API & Integration Questions
+
+**Q: Do I need all three integrations (OpenAI, GitHub, Claude Code)?**
+A: No. Only **OpenAI API key** is required for AI-powered feedback analysis. GitHub and Claude Code integrations are completely optional based on your workflow.
+
+**Q: Can I use Anthropic Claude instead of OpenAI?**
+A: Not yet in v0.1.0. Anthropic Claude integration is planned for v0.4.0.
+
+**Q: What happens to my API keys?**
+A: API keys are stored securely in your browser's encrypted local storage (`chrome.storage.local`). They are never transmitted except to the configured APIs (OpenAI, GitHub). Keys are cleared when you uninstall the extension.
+
+**Q: How much does this cost to use?**
+A: MrPlug itself is free and open source (MIT license). You'll pay for API usage:
+- **OpenAI**: ~$0.01-0.05 per feedback request (GPT-4 pricing)
+- **GitHub**: Free (API included with GitHub accounts)
+- **Claude Code**: Free (runs locally)
+
+### Usage Questions
+
+**Q: Can I customize the AI prompts?**
+A: Not in v0.1.0. Custom prompt templates and system prompts are planned for v0.4.0.
+
+**Q: Can I select multiple elements at once?**
+A: Not yet. Multi-element selection mode is planned for v0.3.0.
+
+**Q: Does this work with React, Vue, Angular, Svelte, etc.?**
+A: Yes! MrPlug works with **any web application** regardless of framework, library, or technology stack. It operates at the DOM level.
+
+**Q: Can I use this for mobile app development?**
+A: Not directly. MrPlug works on web UIs. However, if you have a web-based mobile preview (like in a simulator), it could work there. Native mobile app support is out of scope.
+
+### Claude Code Integration
+
+**Q: How does Claude Code integration work?**
+A: Currently via localStorage bridge. When you click "Apply Fix", MrPlug writes a structured command to `localStorage.mrplug_claude_command` which Claude Code (or your custom tooling) can monitor and execute. Future versions will support MCP (Model Context Protocol) server.
+
+**Q: Can Claude Code automatically apply fixes without confirmation?**
+A: That depends on your Claude Code configuration, not MrPlug. MrPlug sends structured commands; you decide how Claude Code handles them (auto-apply, review first, etc.).
+
+**Q: What if I don't use Claude Code?**
+A: No problem! You can disable Claude Code integration and just use GitHub issue creation, or simply review the AI analysis manually.
+
+### Troubleshooting
+
+**Q: The extension isn't loading. What should I do?**
+A: See the [Troubleshooting](#troubleshooting) section for detailed solutions. Common fixes:
+1. Ensure you ran `pnpm build`
+2. Check `chrome://extensions/` for errors
+3. Verify Node.js version matches `.nvmrc`
+4. Clear browser cache and reload
+
+**Q: AI analysis is failing. How do I fix this?**
+A: Most common causes:
+1. Invalid or expired OpenAI API key
+2. Insufficient API credits
+3. Network connectivity issues
+4. Rate limiting
+
+See [Troubleshooting - AI Analysis Failing](#ai-analysis-failing) for detailed solutions.
+
+**Q: I found a bug. How do I report it?**
+A: Please [open a GitHub issue](https://github.com/yourusername/mrplug/issues/new) with:
+- Browser and version
+- Steps to reproduce
+- Expected vs actual behavior
+- Console error messages (if any)
+- Screenshots (if helpful)
 
 ## License
 
@@ -405,13 +677,27 @@ MIT License - see LICENSE file for details
 
 ## Acknowledgments
 
-- **IBM Carbon Design System**: UI component library
-- **LangChain**: AI agent framework
-- **OpenAI**: GPT models for analysis
-- **Anthropic**: Claude Code/CLI integration inspiration
-- **Vite**: Fast build tooling
-- **CRXJS**: Browser extension Vite plugin
+Built on the shoulders of giants:
+
+- **IBM Carbon Design System** - Professional, accessible UI component library
+- **LangChain.js** - Powerful AI agent framework for structured LLM interactions
+- **OpenAI** - GPT-4 for intelligent feedback analysis
+- **Anthropic** - Claude Code/CLI integration inspiration and future API support
+- **Vite** - Lightning-fast build tooling and HMR
+- **CRXJS** - Seamless browser extension integration for Vite
+- **Octokit** - Robust GitHub API client
+- **Vitest** - Modern, fast testing framework
+- **pnpm** - Efficient package management
+- **TypeScript** - Type safety and developer experience
 
 ---
 
-Built with ❤️ for developers, designers, and product teams who want to move faster with AI-assisted feedback.
+<div align="center">
+
+**Built with ❤️ for developers, designers, and product teams**
+
+*Move faster with AI-assisted UI feedback*
+
+[⬆ Back to Top](#mrplug---ai-powered-ui-feedback-assistant)
+
+</div>
