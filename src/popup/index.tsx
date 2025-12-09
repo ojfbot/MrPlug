@@ -41,8 +41,15 @@ function Popup() {
 
   const loadData = async () => {
     try {
-      const configData = await browser.runtime.sendMessage({ type: 'get-config' });
-      setConfig(configData as ExtensionConfig);
+      const configData = await browser.runtime.sendMessage({ type: 'get-config' }) as ExtensionConfig;
+      console.log('[MrPlug Popup] Config loaded:', {
+        llmProvider: configData.llmProvider,
+        hasOpenAIKey: !!configData.openaiApiKey,
+        hasAnthropicKey: !!configData.anthropicApiKey,
+        openaiKeyPrefix: configData.openaiApiKey?.substring(0, 7),
+        anthropicKeyPrefix: configData.anthropicApiKey?.substring(0, 10),
+      });
+      setConfig(configData);
     } catch (error) {
       console.error('Failed to load data:', error);
     } finally {

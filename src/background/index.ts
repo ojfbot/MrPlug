@@ -1,23 +1,97 @@
 import browser from 'webextension-polyfill';
 import { Storage } from '../lib/storage';
+import { ENV_CONFIG } from '../lib/env';
 
 console.log('[MrPlug] Background service worker started');
+
+// Auto-configure on startup if env config exists and no API key is set
+(async () => {
+  const hasEnvConfig = ENV_CONFIG && ENV_CONFIG.ANTHROPIC_API_KEY;
+
+  if (hasEnvConfig) {
+    const currentConfig = await Storage.getConfig();
+
+    // If no API key is configured, auto-configure from env
+    if (!currentConfig.anthropicApiKey && !currentConfig.openaiApiKey) {
+      console.log('[MrPlug] 🔄 Auto-configuring from environment on startup');
+      console.log('[MrPlug] 🤖 Provider:', ENV_CONFIG.DEFAULT_PROVIDER);
+
+      await Storage.setConfig({
+        llmProvider: ENV_CONFIG.DEFAULT_PROVIDER as 'anthropic' | 'openai',
+        anthropicApiKey: ENV_CONFIG.ANTHROPIC_API_KEY,
+        claudeCodeEnabled: false,
+        autoScreenshot: true,
+        keyboardShortcut: 'Alt+Shift+F',
+      });
+
+      console.log('[MrPlug] ✅ Extension configured and ready to use!');
+      console.log('[MrPlug] 💡 Press Alt+Shift+F on any localhost page to start');
+    } else {
+      console.log('[MrPlug] 📋 Configuration already exists');
+      console.log('[MrPlug] Provider:', currentConfig.llmProvider);
+      console.log('[MrPlug] Has Anthropic key:', !!currentConfig.anthropicApiKey);
+      console.log('[MrPlug] Has OpenAI key:', !!currentConfig.openaiApiKey);
+    }
+  }
+})();
 
 // Handle installation
 browser.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === 'install') {
     console.log('[MrPlug] Extension installed');
 
-    // Initialize default config
-    await Storage.setConfig({
-      llmProvider: 'none',
-      claudeCodeEnabled: false,
-      autoScreenshot: true,
-      keyboardShortcut: 'Alt+Shift+F',
-    });
+    // Check for environment config and auto-configure
+    const hasEnvConfig = ENV_CONFIG && ENV_CONFIG.ANTHROPIC_API_KEY;
 
-    // Open options page on first install
-    browser.runtime.openOptionsPage();
+    if (hasEnvConfig) {
+      console.log('[MrPlug] 🔑 Auto-configuring with environment API key');
+      console.log('[MrPlug] 🤖 Provider:', ENV_CONFIG.DEFAULT_PROVIDER);
+
+      // Initialize with environment API key
+      await Storage.setConfig({
+        llmProvider: ENV_CONFIG.DEFAULT_PROVIDER as 'anthropic' | 'openai',
+        anthropicApiKey: ENV_CONFIG.ANTHROPIC_API_KEY,
+        claudeCodeEnabled: false,
+        autoScreenshot: true,
+        keyboardShortcut: 'Alt+Shift+F',
+      });
+
+      console.log('[MrPlug] ✅ Extension configured and ready to use!');
+      console.log('[MrPlug] 💡 Press Alt+Shift+F on any localhost page to start');
+    } else {
+      console.log('[MrPlug] No environment config found - using defaults');
+
+      // Initialize default config
+      await Storage.setConfig({
+        llmProvider: 'none',
+        claudeCodeEnabled: false,
+        autoScreenshot: true,
+        keyboardShortcut: 'Alt+Shift+F',
+      });
+
+      // Open options page on first install
+      browser.runtime.openOptionsPage();
+    }
+  } else if (details.reason === 'update') {
+    console.log('[MrPlug] Extension updated');
+
+    // Check if we should update with new env config
+    const hasEnvConfig = ENV_CONFIG && ENV_CONFIG.ANTHROPIC_API_KEY;
+
+    if (hasEnvConfig) {
+      const currentConfig = await Storage.getConfig();
+
+      // Only update if no API key is currently set
+      if (!currentConfig.anthropicApiKey && !currentConfig.openaiApiKey) {
+        console.log('[MrPlug] 🔑 Auto-updating with environment API key');
+        await Storage.setConfig({
+          ...currentConfig,
+          llmProvider: ENV_CONFIG.DEFAULT_PROVIDER as 'anthropic' | 'openai',
+          anthropicApiKey: ENV_CONFIG.ANTHROPIC_API_KEY,
+        });
+        console.log('[MrPlug] ✅ Configuration updated!');
+      }
+    }
   }
 });
 

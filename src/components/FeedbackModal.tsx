@@ -49,6 +49,30 @@ export function FeedbackModal({
   const currentMatchRef = React.useRef<HTMLSpanElement>(null);
   const [config, setConfig] = useState<ExtensionConfig | null>(null);
 
+  const handleActionClick = async (action: AIResponse['suggestedActions'][0]) => {
+    console.log('[MrPlug] Action clicked:', action);
+
+    switch (action.type) {
+      case 'github-issue':
+        // TODO: Create GitHub issue
+        alert(`Create GitHub Issue:\n\nTitle: ${action.title}\n\nDescription: ${action.description}\n\nPriority: ${action.priority}`);
+        break;
+
+      case 'claude-code':
+        // TODO: Send to Claude Code
+        alert(`Send to Claude Code:\n\n${action.title}\n\n${action.description}`);
+        break;
+
+      case 'manual':
+        // Show details
+        alert(`Manual Action Required:\n\nTitle: ${action.title}\n\nDescription: ${action.description}\n\nPriority: ${action.priority}`);
+        break;
+
+      default:
+        console.warn('[MrPlug] Unknown action type:', action.type);
+    }
+  };
+
   useEffect(() => {
     if (!isOpen) {
       setFeedback('');
@@ -665,8 +689,10 @@ export function FeedbackModal({
           }}>
             {response?.suggestedActions && response.suggestedActions.length > 0 ? (
               response.suggestedActions.map((action, idx) => (
-                <div
+                <button
                   key={idx}
+                  onClick={() => handleActionClick(action)}
+                  title={`${action.description}\n\nClick to ${action.type === 'github-issue' ? 'create issue' : action.type === 'claude-code' ? 'send to Claude Code' : 'view details'}`}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -678,11 +704,22 @@ export function FeedbackModal({
                     background: getActionColor(action.priority),
                     color: '#ffffff',
                     boxShadow: '0 1px 3px rgba(0, 0, 0, 0.3)',
+                    border: 'none',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 3px 6px rgba(0, 0, 0, 0.4)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.3)';
                   }}
                 >
                   <span>{getActionIcon(action.type)}</span>
                   <span>{action.title}</span>
-                </div>
+                </button>
               ))
             ) : (
               <div style={{ height: '32px' }} />
