@@ -84,14 +84,27 @@ class MrPlugContent {
   private async loadConfig() {
     const config = await Storage.getConfig();
 
+    console.log('[MrPlug] Loading config:', {
+      llmProvider: config.llmProvider,
+      hasOpenAIKey: !!config.openaiApiKey,
+      hasAnthropicKey: !!config.anthropicApiKey,
+      openaiKeyPrefix: config.openaiApiKey?.substring(0, 7),
+      anthropicKeyPrefix: config.anthropicApiKey?.substring(0, 10),
+    });
+
     // Initialize AI agent based on provider
     if (config.llmProvider === 'openai' && config.openaiApiKey) {
+      console.log('[MrPlug] Initializing OpenAI agent');
       this.aiAgent = new AIAgent(config.openaiApiKey);
     } else if (config.llmProvider === 'anthropic' && config.anthropicApiKey) {
-      this.aiAgent = new AnthropicAgent(config.anthropicApiKey);
+      console.log('[MrPlug] Initializing Anthropic agent');
+      this.aiAgent = new AIAgent(config.anthropicApiKey);
     } else if (config.openaiApiKey) {
       // Fallback for existing configs without llmProvider set
+      console.log('[MrPlug] Initializing agent with OpenAI fallback');
       this.aiAgent = new AIAgent(config.openaiApiKey);
+    } else {
+      console.warn('[MrPlug] No AI agent configured - AI analysis will not be available');
     }
 
     if (config.githubToken && config.githubRepo) {
@@ -448,7 +461,15 @@ class MrPlugContent {
 
     // Try to get AI analysis if configured, but don't fail if not
     let response: AIResponse | undefined;
+
+    // If agent not initialized, try to reload config
+    if (!this.aiAgent) {
+      console.warn('[MrPlug] AI agent not initialized - attempting to reload config...');
+      await this.loadConfig();
+    }
+
     if (this.aiAgent) {
+      console.log('[MrPlug] AI agent is initialized, calling analyzeFeedback...');
       try {
         response = await this.aiAgent.analyzeFeedback(
           feedback,
@@ -456,6 +477,7 @@ class MrPlugContent {
           conversationHistory,
           agentMode
         );
+        console.log('[MrPlug] AI analysis received:', response);
 
         await Storage.addConversationMessage({
           role: 'assistant',
@@ -463,8 +485,15 @@ class MrPlugContent {
           timestamp: Date.now(),
         });
       } catch (error) {
-        console.warn('[MrPlug] AI analysis failed:', error);
+        console.error('[MrPlug] AI analysis failed:', error);
+        console.error('[MrPlug] Error details:', {
+          name: error instanceof Error ? error.name : 'Unknown',
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        });
       }
+    } else {
+      console.error('[MrPlug] AI agent still not initialized after reload - AI analysis unavailable');
     }
 
     // Capture complete context for Claude Code integration (works with or without AI)
@@ -494,7 +523,7 @@ class MrPlugContent {
     // If no AI response, return a basic response
     if (!response) {
       response = {
-        analysis: 'AI analysis not available (OpenAI API key not configured)',
+        analysis: 'AI analysis not available (API key not configured). Please configure your AI provider in settings.',
         suggestedActions: [],
         requiresCodeChange: false,
         confidence: 0,

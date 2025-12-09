@@ -1,19 +1,33 @@
 import { ChatOpenAI } from '@langchain/openai';
+import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import type { ElementContext, AIResponse, ConversationMessage } from '../types';
 
 export class AIAgent {
-  private model: ChatOpenAI | null = null;
+  private model: ChatOpenAI | ChatAnthropic | null = null;
   private parser = new StringOutputParser();
 
   constructor(apiKey?: string) {
     if (apiKey) {
-      this.model = new ChatOpenAI({
-        modelName: 'gpt-4',
-        temperature: 0.7,
-        openAIApiKey: apiKey,
-      });
+      // Detect API key type and use appropriate provider
+      if (apiKey.startsWith('sk-ant-')) {
+        // Anthropic API key
+        this.model = new ChatAnthropic({
+          modelName: 'claude-sonnet-4-20250514',
+          temperature: 0.7,
+          anthropicApiKey: apiKey,
+        });
+      } else if (apiKey.startsWith('sk-')) {
+        // OpenAI API key
+        this.model = new ChatOpenAI({
+          modelName: 'gpt-4',
+          temperature: 0.7,
+          openAIApiKey: apiKey,
+        });
+      } else {
+        throw new Error('Invalid API key format. Must be OpenAI (sk-...) or Anthropic (sk-ant-...)');
+      }
     }
   }
 
@@ -73,20 +87,20 @@ When analyzing feedback:
 - Identify if it's a styling issue, layout problem, interaction bug, or feature request
 - Prioritize solutions based on complexity and impact
 - Format responses as JSON with the following structure:
-{
+{{
   "analysis": "Your detailed analysis of the issue",
   "suggestedActions": [
-    {
+    {{
       "type": "github-issue" | "claude-code" | "manual",
       "title": "Action title",
       "description": "Detailed description",
       "priority": "low" | "medium" | "high",
-      "metadata": { /* action-specific data */ }
-    }
+      "metadata": {{}}
+    }}
   ],
   "requiresCodeChange": true | false,
   "confidence": 0.0-1.0
-}`;
+}}`;
   }
 
   private formatUserPrompt(

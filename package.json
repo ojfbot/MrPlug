@@ -5,14 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "node scripts/inject-env.js && tsc && vite build",
+    "build:prod": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
     "lint": "eslint . --ext ts,tsx",
     "type-check": "tsc --noEmit",
-    "package": "pnpm build && web-ext build -s dist -a web-ext-artifacts"
+    "package": "pnpm build && web-ext build -s dist -a web-ext-artifacts",
+    "start": "pnpm build && python3 -m http.server 8080 --directory ."
   },
   "keywords": [
     "browser-extension",
@@ -30,7 +32,8 @@
   "packageManager": "pnpm@8.15.0",
   "dependencies": {
     "@carbon/react": "^1.64.0",
-    "@langchain/core": "^0.3.0",
+    "@langchain/anthropic": "^0.3.13",
+    "@langchain/core": "^0.3.79",
     "@langchain/openai": "^0.3.0",
     "@octokit/rest": "^21.0.0",
     "langchain": "^0.3.0",

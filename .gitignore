@@ -19,6 +19,8 @@ secrets/
 *.pem
 *.p12
 *.pfx
+env.json
+src/lib/env.ts
 
 # API keys and tokens (extra security)
 *-key.json
