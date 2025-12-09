@@ -5,7 +5,6 @@ import { ElementOverlay } from '../components/ElementOverlay';
 import { ElementCapture } from '../lib/element-capture';
 import { Storage } from '../lib/storage';
 import { AIAgent } from '../lib/ai-agent';
-import { AnthropicAgent } from '../lib/anthropic-agent';
 import { GitHubIntegration } from '../lib/github-integration';
 import { ClaudeIntegration } from '../lib/claude-integration';
 import { ThemeManager } from '../lib/theme';
@@ -22,7 +21,7 @@ class MrPlugContent {
   private selectedElement: Element | null = null;
   private selectedContext: ElementContext | null = null;
   private modalOpen = false;
-  private aiAgent: AIAgent | AnthropicAgent | null = null;
+  private aiAgent: AIAgent | null = null;
   private githubIntegration: GitHubIntegration | null = null;
   private claudeIntegration: ClaudeIntegration | null = null;
   private elementScreenshot: string | null = null;
@@ -479,21 +478,61 @@ class MrPlugContent {
         );
         console.log('[MrPlug] AI analysis received:', response);
 
-        await Storage.addConversationMessage({
-          role: 'assistant',
-          content: response.analysis,
-          timestamp: Date.now(),
-        });
+        if (response) {
+          await Storage.addConversationMessage({
+            role: 'assistant',
+            content: response.analysis,
+            timestamp: Date.now(),
+          });
+        }
       } catch (error) {
         console.error('[MrPlug] AI analysis failed:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
         console.error('[MrPlug] Error details:', {
           name: error instanceof Error ? error.name : 'Unknown',
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage,
           stack: error instanceof Error ? error.stack : undefined,
         });
+
+        // Surface error to user with actionable message
+        let userMessage = 'AI analysis failed. ';
+        if (errorMessage.includes('API key')) {
+          userMessage += 'Please check your API key in Settings.';
+        } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+          userMessage += 'Please check your internet connection and try again.';
+        } else if (errorMessage.includes('rate limit')) {
+          userMessage += 'API rate limit reached. Please wait a moment and try again.';
+        } else {
+          userMessage += 'Please try again or check the console for details.';
+        }
+
+        response = {
+          analysis: userMessage,
+          suggestedActions: [{
+            type: 'manual',
+            title: 'Check Settings',
+            description: 'Verify your API configuration in the extension settings',
+            priority: 'high',
+          }],
+          requiresCodeChange: false,
+          confidence: 0,
+        };
       }
     } else {
       console.error('[MrPlug] AI agent still not initialized after reload - AI analysis unavailable');
+
+      // User-friendly message for configuration issues
+      response = {
+        analysis: 'AI agent is not configured. Please configure your AI provider (OpenAI or Anthropic) in the extension settings to enable AI analysis.',
+        suggestedActions: [{
+          type: 'manual',
+          title: 'Open Settings',
+          description: 'Click the MrPlug icon and select Settings to configure your API key',
+          priority: 'high',
+        }],
+        requiresCodeChange: false,
+        confidence: 0,
+      };
     }
 
     // Capture complete context for Claude Code integration (works with or without AI)
