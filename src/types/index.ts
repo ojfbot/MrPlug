@@ -131,8 +131,39 @@ export interface ExtensionConfig {
   localAppPath?: string;
 }
 
+export interface ChatSession {
+  id: string; // UUID
+  elementHash: string;
+  title: string;
+  summary: string | null;
+  messages: ConversationMessage[];
+  elementContext: ElementContext;
+  createdAt: number;
+  updatedAt: number;
+  lastMessageAt: number;
+  isActive: boolean;
+  metadata?: {
+    pageUrl: string;
+    messageCount: number;
+    hasAIAnalysis: boolean;
+  };
+}
+
+export interface SessionListItem {
+  id: string;
+  title: string;
+  summary: string | null;
+  lastMessageAt: number;
+  messageCount: number;
+  isActive: boolean;
+  elementHash: string;
+}
+
 export interface StorageData {
   config: ExtensionConfig;
-  conversationHistory: ConversationMessage[];
+  conversationHistory: ConversationMessage[]; // DEPRECATED - for migration
   recentFeedback: FeedbackRequest[];
+  chatSessions: ChatSession[];
+  activeSessionId: string | null;
+  sessionHashIndex: Record<string, string>; // elementHash -> sessionId
 }

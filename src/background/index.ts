@@ -156,8 +156,16 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
         }
         return { success: false, error: 'No active tab' };
       } catch (error) {
-        console.error('[MrPlug] Failed to capture screenshot:', error);
-        return { success: false, error: String(error) };
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('[MrPlug] Failed to capture screenshot:', errorMessage);
+
+        // Check if it's a rate limit error
+        if (errorMessage.includes('MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND')) {
+          console.warn('[MrPlug] Screenshot rate limit exceeded - client should retry');
+          return { success: false, error: 'rate_limit_exceeded' };
+        }
+
+        return { success: false, error: errorMessage };
       }
 
     default:
