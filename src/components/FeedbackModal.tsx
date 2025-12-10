@@ -6,9 +6,10 @@ import {
   InlineNotification,
   Tag,
 } from '@carbon/react';
-import type { ElementContext, AIResponse, ConversationMessage, ClaudeCodePayload, ExtensionConfig } from '../types';
+import type { ElementContext, AIResponse, ConversationMessage, ClaudeCodePayload, ExtensionConfig, SessionListItem } from '../types';
 import { ContextCapture } from '../lib/context-capture';
 import { Storage } from '../lib/storage';
+import { SessionList } from './SessionList';
 
 interface FeedbackModalProps {
   isOpen: boolean;
@@ -20,6 +21,7 @@ interface FeedbackModalProps {
   onSubmit: (feedback: string, agentMode: 'ui' | 'ux') => Promise<AIResponse>;
   onCreateIssue: (response: AIResponse) => Promise<void>;
   onApplyFix: (response: AIResponse) => Promise<void>;
+  onNewSession: () => void;
 }
 
 export function FeedbackModal({
@@ -30,6 +32,7 @@ export function FeedbackModal({
   viewportScreenshot,
   onClose,
   onSubmit,
+  onNewSession,
 }: FeedbackModalProps) {
   const [feedback, setFeedback] = useState('');
   const [loading, setLoading] = useState(false);
@@ -47,7 +50,9 @@ export function FeedbackModal({
   const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const currentMatchRef = React.useRef<HTMLSpanElement>(null);
+  const textAreaRef = React.useRef<HTMLTextAreaElement>(null);
   const [config, setConfig] = useState<ExtensionConfig | null>(null);
+  const [sessions, setSessions] = useState<SessionListItem[]>([]);
 
   const handleActionClick = async (action: AIResponse['suggestedActions'][0]) => {
     console.log('[MrPlug] Action clicked:', action);
@@ -87,33 +92,93 @@ export function FeedbackModal({
     }
   }, [isOpen]);
 
+  // Load sessions and conversation history
+  const loadSessions = React.useCallback(async () => {
+    const allSessions = await Storage.getChatSessions();
+    const sessionList: SessionListItem[] = allSessions.map((s) => ({
+      id: s.id,
+      title: s.title,
+      summary: s.summary,
+      lastMessageAt: s.lastMessageAt,
+      messageCount: s.metadata?.messageCount || 0,
+      isActive: s.isActive,
+      elementHash: s.elementHash,
+    }));
+    setSessions(sessionList);
+
+    const activeId = await Storage.getActiveSessionId();
+
+    // Load conversation from active session
+    if (activeId) {
+      const activeSession = await Storage.getSessionById(activeId);
+      if (activeSession) {
+        setConversationHistory(activeSession.messages);
+      }
+    }
+  }, []);
+
   // Load config when modal opens
   useEffect(() => {
     if (isOpen) {
       Storage.getConfig().then(setConfig);
+      loadSessions();
     }
-  }, [isOpen]);
+  }, [isOpen, loadSessions]);
+
+  const handleSessionSelect = React.useCallback(async (sessionId: string) => {
+    console.log('[MrPlug] Switching to session:', sessionId);
+
+    // Optimized: Update UI immediately, then update storage
+    setSessions(prev => prev.map(s => ({ ...s, isActive: s.id === sessionId })));
+
+    try {
+      // Load conversation for selected session
+      const session = await Storage.getSessionById(sessionId);
+      if (session) {
+        console.log('[MrPlug] Loaded session with', session.messages.length, 'messages');
+        console.log('[MrPlug] First message timestamp:', session.messages[0]?.timestamp);
+        console.log('[MrPlug] Last message timestamp:', session.messages[session.messages.length - 1]?.timestamp);
+
+        // Force React to re-render by creating new array reference
+        setConversationHistory([...session.messages]);
+      }
+
+      // Update storage in background
+      await Storage.setActiveSession(sessionId);
+      console.log('[MrPlug] Session switch complete');
+    } catch (err) {
+      console.error('[MrPlug] Error switching sessions:', err);
+    }
+  }, []);
+
+  const handleNewSessionClick = () => {
+    // Trigger new session mode (activates feedback mode)
+    onNewSession();
+  };
 
   // Capture context data when modal opens with element
+  // CRITICAL: Only run when modal opens or element changes, NOT on every message!
   useEffect(() => {
     if (isOpen && selectedElement) {
       const captureContext = async () => {
         try {
+          // Get the current conversation at this moment
+          const currentHistory = await Storage.getConversationHistory();
           const payload = await ContextCapture.captureCompleteContext(
             selectedElement,
             '',
             undefined,
-            conversationHistory
+            currentHistory
           );
           setContextData(payload);
-          console.log('[MrPlug] Captured context data:', payload);
+          console.log('[MrPlug] Context captured for element');
         } catch (err) {
           console.warn('[MrPlug] Failed to capture context:', err);
         }
       };
       captureContext();
     }
-  }, [isOpen, selectedElement, conversationHistory]);
+  }, [isOpen, selectedElement]);
 
   // Handle ESC key to close preview first, then modal
   useEffect(() => {
@@ -200,6 +265,23 @@ export function FeedbackModal({
       }, 100);
     }
   }, [viewingContext]);
+
+  // Auto-focus TextArea when modal opens or when returning from context viewer
+  useEffect(() => {
+    if (isOpen && !viewingContext && !loading) {
+      // Small delay to ensure modal is fully rendered
+      setTimeout(() => {
+        // Carbon TextArea ref points to wrapper, need to find actual textarea
+        const textarea = textAreaRef.current?.querySelector('textarea') as HTMLTextAreaElement;
+        if (textarea) {
+          console.log('[MrPlug] Focusing textarea element');
+          textarea.focus();
+        } else {
+          console.warn('[MrPlug] Could not find textarea element to focus');
+        }
+      }, 150);
+    }
+  }, [isOpen, viewingContext, loading]);
 
   // Scroll to current match when search index changes
   useEffect(() => {
@@ -298,7 +380,21 @@ export function FeedbackModal({
       primaryButtonDisabled={!feedback.trim() || loading}
       size="lg"
     >
-      <div style={{ marginBottom: '1rem', minHeight: '400px', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', height: '700px', minHeight: '700px' }}>
+        {/* Session List Sidebar */}
+        <SessionList
+          sessions={sessions}
+          onSessionSelect={handleSessionSelect}
+          onNewSession={handleNewSessionClick}
+        />
+
+        {/* Main Chat Area */}
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          padding: '0 1rem',
+        }}>
 
         {/* Status Bar with Connection Links */}
         <div style={{
@@ -363,7 +459,7 @@ export function FeedbackModal({
         <div
           style={{
             marginBottom: '0.75rem',
-            height: '250px',
+            height: '300px',
             background: 'var(--cds-layer-01)',
             border: '1px solid var(--cds-border-subtle)',
             borderRadius: '4px',
@@ -507,7 +603,7 @@ export function FeedbackModal({
                     const isCurrentMatch = idx === currentSearchIndex;
                     parts.push(
                       <span
-                        key={idx}
+                        key={`match-${resultIndex}-${idx}`}
                         ref={isCurrentMatch ? currentMatchRef : null}
                         style={{
                           background: isCurrentMatch ? '#ffa500' : '#ffff00',
@@ -552,7 +648,7 @@ export function FeedbackModal({
                 </div>
               ) : (
                 conversationHistory.map((msg, idx) => (
-                  <div key={idx} style={{ marginBottom: '0.75rem' }}>
+                  <div key={`${msg.timestamp}-${msg.role}-${idx}`} style={{ marginBottom: '0.75rem' }}>
                     <Tag type={msg.role === 'user' ? 'blue' : 'green'} size="sm">
                       {msg.role}
                     </Tag>
@@ -653,8 +749,9 @@ export function FeedbackModal({
         </div>
 
         {/* Text Input */}
-        <div style={{ position: 'relative', flexGrow: 1 }}>
+        <div style={{ position: 'relative', marginBottom: '0.75rem' }}>
           <TextArea
+            ref={textAreaRef}
             labelText={agentMode === 'ui' ? 'Describe the UI issue or desired change' : 'Describe the feature or user experience goal'}
             placeholder={
               agentMode === 'ui'
@@ -671,13 +768,12 @@ export function FeedbackModal({
 
         {/* Row: Badge Buttons (Left) and Screenshots (Right) */}
         <div style={{
-          marginTop: '0.5rem',
-          marginBottom: '0.5rem',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'flex-start',
           gap: '1rem',
           minHeight: '32px',
+          marginBottom: '0.5rem',
         }}>
           {/* Left: Badge Buttons */}
           <div style={{
@@ -690,7 +786,7 @@ export function FeedbackModal({
             {response?.suggestedActions && response.suggestedActions.length > 0 ? (
               response.suggestedActions.map((action, idx) => (
                 <button
-                  key={idx}
+                  key={`${action.type}-${action.title}-${idx}`}
                   onClick={() => handleActionClick(action)}
                   title={`${action.description}\n\nClick to ${action.type === 'github-issue' ? 'create issue' : action.type === 'claude-code' ? 'send to Claude Code' : 'view details'}`}
                   style={{
@@ -843,7 +939,8 @@ export function FeedbackModal({
             )}
           </div>
         </div>
-      </div>
+        </div> {/* End Main Chat Area */}
+      </div> {/* End flex container */}
     </Modal>
 
     {/* Image Preview Modal */}

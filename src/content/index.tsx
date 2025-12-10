@@ -3,11 +3,13 @@ import browser from 'webextension-polyfill';
 import { FeedbackModal } from '../components/FeedbackModal';
 import { ElementOverlay } from '../components/ElementOverlay';
 import { ElementCapture } from '../lib/element-capture';
+import { ElementHash } from '../lib/element-hash';
 import { Storage } from '../lib/storage';
 import { AIAgent } from '../lib/ai-agent';
 import { GitHubIntegration } from '../lib/github-integration';
 import { ClaudeIntegration } from '../lib/claude-integration';
 import { ThemeManager } from '../lib/theme';
+import { SessionSummary } from '../lib/session-summary';
 import type { ElementContext, AIResponse, FeedbackRequest } from '../types';
 import './styles.css';
 import '../styles/carbon-lite.css';
@@ -26,9 +28,26 @@ class MrPlugContent {
   private claudeIntegration: ClaudeIntegration | null = null;
   private elementScreenshot: string | null = null;
   private viewportScreenshot: string | null = null;
+  private currentElementHash: string | null = null;
+  private currentSessionId: string | null = null;
+  private lastScreenshotTime: number = 0;
+  private screenshotRateLimit: number = 600; // 600ms between captures to stay under 2/sec limit
+  private dismissedPageModal: {
+    modal: HTMLElement;
+    backdrop: HTMLElement | null;
+    originalStyles: {
+      modalDisplay: string;
+      modalVisibility: string;
+      modalOpacity: string;
+      backdropDisplay?: string;
+      backdropVisibility?: string;
+      backdropOpacity?: string;
+    };
+  } | null = null;
 
   async init() {
     await this.loadConfig();
+    await Storage.migrateToSessions(); // Run migration from old conversation format
     await ThemeManager.initTheme();
     this.injectUI();
     this.syncTheme(); // Must be after injectUI to ensure this.root exists
@@ -144,6 +163,7 @@ class MrPlugContent {
             onSubmit={(feedback, agentMode) => this.handleFeedbackSubmit(feedback, agentMode)}
             onCreateIssue={(response) => this.handleCreateIssue(response)}
             onApplyFix={(response) => this.handleApplyFix(response)}
+            onNewSession={() => this.handleNewSession()}
           />
         </>
       );
@@ -156,6 +176,12 @@ class MrPlugContent {
   private setupEventListeners() {
     // Track fn key state - use capture mode to ensure we catch it first
     document.addEventListener('keydown', (e) => {
+      // Don't interfere with keyboard input when modal is open
+      if (this.modalOpen) {
+        // Allow all keyboard events to pass through to the modal
+        return;
+      }
+
       // X key to exit feedback mode (only when in feedback mode, not when modal is open)
       if ((e.key === 'x' || e.key === 'X') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         if (this.isActive && !this.modalOpen) {
@@ -247,6 +273,13 @@ class MrPlugContent {
     this.hideHint();
   }
 
+  private handleNewSession() {
+    // Close modal
+    this.closeModal();
+    // Activate feedback mode for element selection
+    this.activate();
+  }
+
   private showHint() {
     // Remove any existing hints first
     this.hideHint();
@@ -310,29 +343,167 @@ class MrPlugContent {
     this.selectedContext = await ElementCapture.captureElement(element);
     console.log('[MrPlug] Element context captured:', this.selectedContext);
 
-    // Capture screenshots before opening modal
+    // Generate element hash
+    this.currentElementHash = ElementHash.generate(element);
+    console.log('[MrPlug] Element hash:', this.currentElementHash);
+
+    // Check for existing session
+    let session = await Storage.findSessionByElementHash(this.currentElementHash);
+
+    if (session) {
+      // Resume existing session
+      console.log('[MrPlug] Resuming session:', session.id);
+      this.currentSessionId = session.id;
+      await Storage.setActiveSession(session.id);
+    } else {
+      // Create new session
+      console.log('[MrPlug] Creating new session for element');
+      const title = ElementHash.generateTitle(element);
+      session = await Storage.createSession(
+        this.currentElementHash,
+        title,
+        this.selectedContext
+      );
+      this.currentSessionId = session.id;
+    }
+
+    // Capture screenshots BEFORE dismissing page modal
     await this.captureScreenshots(element);
 
     this.isActive = false;
     document.body.classList.remove('mrplug-active-mode');
 
     this.openModal();
+
+    // WORKAROUND: Dismiss page modals AFTER MrPlug modal is open and screenshot is captured
+    // This ensures the dismissal is subtle and doesn't interfere with screenshot
+    // Known issue: Page modals can interfere with keyboard focus in MrPlug modal
+    setTimeout(() => {
+      this.dismissPageModals(element);
+    }, 200); // Small delay to ensure MrPlug modal is fully rendered
+  }
+
+  private dismissPageModals(element: Element) {
+    // Try to detect and dismiss modals that contain the selected element
+    // This is a workaround for keyboard focus issues when selecting elements inside modals
+    // Dismissal is subtle (opacity fade) and restorable
+
+    // Check if element is inside a modal
+    const modal = element.closest('[role="dialog"], [aria-modal="true"], .cds--modal, .modal');
+
+    if (modal && modal instanceof HTMLElement) {
+      console.log('[MrPlug] Detected element is inside a modal, subtly dismissing it');
+
+      // Find backdrop
+      const backdrop = document.querySelector('.cds--modal-backdrop, .modal-backdrop, [class*="backdrop"], [class*="overlay"]') as HTMLElement | null;
+
+      // Save original styles for restoration
+      this.dismissedPageModal = {
+        modal,
+        backdrop,
+        originalStyles: {
+          modalDisplay: modal.style.display || '',
+          modalVisibility: modal.style.visibility || '',
+          modalOpacity: modal.style.opacity || '',
+          backdropDisplay: backdrop?.style.display || '',
+          backdropVisibility: backdrop?.style.visibility || '',
+          backdropOpacity: backdrop?.style.opacity || '',
+        },
+      };
+
+      console.log('[MrPlug] Saved modal state for restoration');
+
+      // Subtle fade out using opacity and pointer-events
+      // Don't use display:none immediately - that's too visible
+      modal.style.transition = 'opacity 0.3s ease-out';
+      modal.style.opacity = '0';
+      modal.style.pointerEvents = 'none';
+      modal.setAttribute('aria-hidden', 'true');
+
+      if (backdrop) {
+        backdrop.style.transition = 'opacity 0.3s ease-out';
+        backdrop.style.opacity = '0';
+        backdrop.style.pointerEvents = 'none';
+      }
+
+      // After fade completes, set visibility:hidden to fully remove from layout
+      setTimeout(() => {
+        modal.style.visibility = 'hidden';
+        if (backdrop) {
+          backdrop.style.visibility = 'hidden';
+        }
+        console.log('[MrPlug] Page modal fully dismissed (subtle)');
+      }, 300);
+    }
+  }
+
+  private restorePageModal() {
+    // Restore page modal that was dismissed
+    if (!this.dismissedPageModal) {
+      return;
+    }
+
+    console.log('[MrPlug] Restoring page modal state');
+
+    const { modal, backdrop, originalStyles } = this.dismissedPageModal;
+
+    // Restore modal styles
+    modal.style.visibility = originalStyles.modalVisibility;
+    modal.style.display = originalStyles.modalDisplay;
+    modal.style.opacity = originalStyles.modalOpacity || '1';
+    modal.style.pointerEvents = '';
+    modal.style.transition = '';
+    modal.removeAttribute('aria-hidden');
+
+    // Restore backdrop styles
+    if (backdrop) {
+      backdrop.style.visibility = originalStyles.backdropVisibility || '';
+      backdrop.style.display = originalStyles.backdropDisplay || '';
+      backdrop.style.opacity = originalStyles.backdropOpacity || '1';
+      backdrop.style.pointerEvents = '';
+      backdrop.style.transition = '';
+    }
+
+    // Try to restore focus to modal
+    try {
+      const focusableElement = modal.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') as HTMLElement;
+      if (focusableElement) {
+        focusableElement.focus();
+        console.log('[MrPlug] Focus restored to page modal');
+      }
+    } catch (e) {
+      console.warn('[MrPlug] Failed to restore focus to page modal:', e);
+    }
+
+    console.log('[MrPlug] Page modal restored');
+    this.dismissedPageModal = null;
   }
 
   private async captureScreenshots(element: Element) {
     try {
+      // Rate limiting: Check if we're calling too frequently
+      const now = Date.now();
+      const timeSinceLastCapture = now - this.lastScreenshotTime;
+
+      if (timeSinceLastCapture < this.screenshotRateLimit) {
+        const waitTime = this.screenshotRateLimit - timeSinceLastCapture;
+        console.log(`[MrPlug] Rate limiting screenshot capture, waiting ${waitTime}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+
       console.log('[MrPlug] Starting screenshot capture...');
+      this.lastScreenshotTime = Date.now();
 
       // Capture full viewport screenshot via background script with timeout
       const screenshotPromise = browser.runtime.sendMessage({
         type: 'capture-screenshot'
-      }) as Promise<{ success?: boolean; dataUrl?: string }>;
+      }) as Promise<{ success?: boolean; dataUrl?: string; error?: string }>;
 
       // Add timeout to prevent hanging
-      const timeoutPromise = new Promise<{ success: false }>((resolve) => {
+      const timeoutPromise = new Promise<{ success: false; error: string }>((resolve) => {
         setTimeout(() => {
           console.warn('[MrPlug] Screenshot capture timed out');
-          resolve({ success: false });
+          resolve({ success: false, error: 'timeout' });
         }, 3000); // 3 second timeout
       });
 
@@ -353,10 +524,13 @@ class MrPlugContent {
           }
         }
       } else {
-        console.warn('[MrPlug] No screenshot data received');
+        const errorMsg = response && 'error' in response ? response.error : 'Unknown error';
+        console.warn('[MrPlug] Screenshot capture failed:', errorMsg);
+        // Continue without screenshots - don't block the modal
       }
     } catch (error) {
-      console.warn('[MrPlug] Failed to capture screenshots:', error);
+      console.error('[MrPlug] Failed to capture screenshots:', error);
+      // Continue without screenshots - don't block the modal
     }
     console.log('[MrPlug] Screenshot capture completed');
   }
@@ -431,17 +605,24 @@ class MrPlugContent {
     this.selectedContext = null;
     this.elementScreenshot = null;
     this.viewportScreenshot = null;
+
+    // Restore page modal if it was dismissed
+    this.restorePageModal();
+
     this.renderUI();
   }
 
   private async handleFeedbackSubmit(feedback: string, agentMode: 'ui' | 'ux' = 'ui'): Promise<AIResponse> {
-    if (!this.selectedContext) {
-      throw new Error('No element selected');
+    if (!this.selectedContext || !this.currentSessionId) {
+      throw new Error('No element or session selected');
     }
 
-    const conversationHistory = await Storage.getConversationHistory();
+    // Get session conversation history
+    const session = await Storage.getSessionById(this.currentSessionId);
+    const conversationHistory = session?.messages || [];
 
-    await Storage.addConversationMessage({
+    // Add user message to session
+    await Storage.addMessageToSession(this.currentSessionId, {
       role: 'user',
       content: feedback,
       timestamp: Date.now(),
@@ -479,11 +660,15 @@ class MrPlugContent {
         console.log('[MrPlug] AI analysis received:', response);
 
         if (response) {
-          await Storage.addConversationMessage({
+          // Add assistant response to session
+          await Storage.addMessageToSession(this.currentSessionId!, {
             role: 'assistant',
             content: response.analysis,
             timestamp: Date.now(),
           });
+
+          // Auto-generate summary if needed
+          await SessionSummary.autoGenerateSummary(this.currentSessionId!, this.aiAgent);
         }
       } catch (error) {
         console.error('[MrPlug] AI analysis failed:', error);
