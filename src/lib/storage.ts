@@ -66,24 +66,25 @@ export class Storage {
   // ===== SESSION MANAGEMENT METHODS =====
 
   /**
-   * Get all chat sessions (sorted by lastMessageAt desc)
+   * Get all chat sessions
+   * @param sorted - Whether to sort by lastMessageAt desc (default: true)
    */
-  static async getChatSessions(): Promise<ChatSession[]> {
+  static async getChatSessions(sorted: boolean = true): Promise<ChatSession[]> {
     const result = await browser.storage.local.get(this.KEYS.CHAT_SESSIONS);
     const sessions = (result[this.KEYS.CHAT_SESSIONS] as ChatSession[]) || [];
-    return sessions.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+    return sorted ? sessions.sort((a, b) => b.lastMessageAt - a.lastMessageAt) : sessions;
   }
 
   /**
-   * Get session by ID
+   * Get session by ID (optimized - no sorting)
    */
   static async getSessionById(sessionId: string): Promise<ChatSession | null> {
-    const sessions = await this.getChatSessions();
+    const sessions = await this.getChatSessions(false); // Don't sort for single lookup
     return sessions.find((s) => s.id === sessionId) || null;
   }
 
   /**
-   * Find session by element hash
+   * Find session by element hash (optimized with index)
    */
   static async findSessionByElementHash(elementHash: string): Promise<ChatSession | null> {
     const result = await browser.storage.local.get(this.KEYS.SESSION_INDEX);
@@ -92,7 +93,7 @@ export class Storage {
     const sessionId = index[elementHash];
     if (!sessionId) return null;
 
-    return this.getSessionById(sessionId);
+    return this.getSessionById(sessionId); // Already optimized (no sorting)
   }
 
   /**
@@ -251,7 +252,7 @@ export class Storage {
     await browser.storage.local.set({ [this.KEYS.SESSION_INDEX]: index });
   }
 
-  private static generateUUID(): string {
+  static generateUUID(): string {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
       const r = (Math.random() * 16) | 0;
       const v = c === 'x' ? r : (r & 0x3) | 0x8;

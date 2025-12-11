@@ -25,6 +25,7 @@ export interface FeedbackRequest {
 }
 
 export interface ConversationMessage {
+  id: string; // UUID for stable React keys
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;

@@ -123,7 +123,7 @@ export function FeedbackModal({
       Storage.getConfig().then(setConfig);
       loadSessions();
     }
-  }, [isOpen, loadSessions]);
+  }, [isOpen]); // loadSessions is stable (empty deps), no need to include
 
   const handleSessionSelect = React.useCallback(async (sessionId: string) => {
     console.log('[MrPlug] Switching to session:', sessionId);
@@ -305,12 +305,14 @@ export function FeedbackModal({
       setResponse(aiResponse);
 
       const userMessage: ConversationMessage = {
+        id: Storage.generateUUID(),
         role: 'user',
         content: feedback,
         timestamp: Date.now(),
       };
 
       const assistantMessage: ConversationMessage = {
+        id: Storage.generateUUID(),
         role: 'assistant',
         content: aiResponse.analysis,
         timestamp: Date.now(),
@@ -647,8 +649,8 @@ export function FeedbackModal({
                   No conversation history yet
                 </div>
               ) : (
-                conversationHistory.map((msg, idx) => (
-                  <div key={`${msg.timestamp}-${msg.role}-${idx}`} style={{ marginBottom: '0.75rem' }}>
+                conversationHistory.map((msg) => (
+                  <div key={msg.id} style={{ marginBottom: '0.75rem' }}>
                     <Tag type={msg.role === 'user' ? 'blue' : 'green'} size="sm">
                       {msg.role}
                     </Tag>
