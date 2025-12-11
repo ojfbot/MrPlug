@@ -1,0 +1,37 @@
+{
+  "name": "mrplug-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for MrPlug browser extension - enables Claude Code integration",
+  "type": "module",
+  "main": "dist/http-server.js",
+  "scripts": {
+    "dev": "tsx watch src/http-server.ts",
+    "build": "tsc",
+    "start": "node dist/http-server.js",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "browser-extension",
+    "mrplug"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "express": "^4.21.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.5.0",
+    "tsx": "^4.19.2"
+  }
+}

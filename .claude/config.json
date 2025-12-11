@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "mrplug": {
+      "command": "npx",
+      "args": ["-y", "tsx", "mrplug-mcp-server/src/stdio-server.ts"],
+      "description": "MrPlug browser extension integration - provides access to UI feedback sessions and browser control"
+    }
+  }
+}

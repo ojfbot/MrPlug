@@ -125,6 +125,11 @@ export interface ExtensionConfig {
   githubRepo?: string;
   claudeCodeEnabled: boolean;
 
+  // MCP Server settings
+  mcpEnabled?: boolean;
+  mcpServerUrl?: string;
+  mcpWsUrl?: string;
+
   // General settings
   autoScreenshot: boolean;
   keyboardShortcut: string;
