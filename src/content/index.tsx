@@ -10,7 +10,7 @@ import { GitHubIntegration } from '../lib/github-integration';
 import { ClaudeIntegration } from '../lib/claude-integration';
 import { ThemeManager } from '../lib/theme';
 import { SessionSummary } from '../lib/session-summary';
-import type { ElementContext, AIResponse, FeedbackRequest } from '../types';
+import type { ElementContext, AIResponse, FeedbackRequest, ChatSession } from '../types';
 import './styles.css';
 import '../styles/carbon-lite.css';
 
@@ -347,24 +347,33 @@ class MrPlugContent {
     this.currentElementHash = ElementHash.generate(element);
     console.log('[MrPlug] Element hash:', this.currentElementHash);
 
-    // Check for existing session
-    let session = await Storage.findSessionByElementHash(this.currentElementHash);
+    // Check for existing session with error handling
+    let session: ChatSession | null = null;
+    try {
+      session = await Storage.findSessionByElementHash(this.currentElementHash);
 
-    if (session) {
-      // Resume existing session
-      console.log('[MrPlug] Resuming session:', session.id);
-      this.currentSessionId = session.id;
-      await Storage.setActiveSession(session.id);
-    } else {
-      // Create new session
-      console.log('[MrPlug] Creating new session for element');
-      const title = ElementHash.generateTitle(element);
-      session = await Storage.createSession(
-        this.currentElementHash,
-        title,
-        this.selectedContext
-      );
-      this.currentSessionId = session.id;
+      if (session) {
+        // Resume existing session
+        console.log('[MrPlug] Resuming session:', session.id);
+        this.currentSessionId = session.id;
+        await Storage.setActiveSession(session.id);
+      } else {
+        // Create new session
+        console.log('[MrPlug] Creating new session for element');
+        const title = ElementHash.generateTitle(element);
+        session = await Storage.createSession(
+          this.currentElementHash,
+          title,
+          this.selectedContext
+        );
+        this.currentSessionId = session.id;
+      }
+    } catch (error) {
+      console.error('[MrPlug] Failed to create/resume session:', error);
+      // Show user-visible error - still open modal but with error state
+      this.currentSessionId = null;
+      alert('Failed to create chat session. Your feedback will not be saved. Please try again.');
+      return;
     }
 
     // Capture screenshots BEFORE dismissing page modal
@@ -447,6 +456,13 @@ class MrPlugContent {
 
     const { modal, backdrop, originalStyles } = this.dismissedPageModal;
 
+    // Check if modal still exists in DOM
+    if (!document.body.contains(modal)) {
+      console.warn('[MrPlug] Modal no longer in DOM, skipping restore');
+      this.dismissedPageModal = null;
+      return;
+    }
+
     // Restore modal styles
     modal.style.visibility = originalStyles.modalVisibility;
     modal.style.display = originalStyles.modalDisplay;
@@ -455,8 +471,8 @@ class MrPlugContent {
     modal.style.transition = '';
     modal.removeAttribute('aria-hidden');
 
-    // Restore backdrop styles
-    if (backdrop) {
+    // Restore backdrop styles (check existence first)
+    if (backdrop && document.body.contains(backdrop)) {
       backdrop.style.visibility = originalStyles.backdropVisibility || '';
       backdrop.style.display = originalStyles.backdropDisplay || '';
       backdrop.style.opacity = originalStyles.backdropOpacity || '1';
@@ -488,11 +504,15 @@ class MrPlugContent {
       if (timeSinceLastCapture < this.screenshotRateLimit) {
         const waitTime = this.screenshotRateLimit - timeSinceLastCapture;
         console.log(`[MrPlug] Rate limiting screenshot capture, waiting ${waitTime}ms...`);
+        // Reserve the slot BEFORE waiting to prevent race conditions
+        this.lastScreenshotTime = now + waitTime;
         await new Promise(resolve => setTimeout(resolve, waitTime));
+      } else {
+        // Update timestamp immediately to reserve this slot
+        this.lastScreenshotTime = now;
       }
 
       console.log('[MrPlug] Starting screenshot capture...');
-      this.lastScreenshotTime = Date.now();
 
       // Capture full viewport screenshot via background script with timeout
       const screenshotPromise = browser.runtime.sendMessage({
@@ -613,20 +633,28 @@ class MrPlugContent {
   }
 
   private async handleFeedbackSubmit(feedback: string, agentMode: 'ui' | 'ux' = 'ui'): Promise<AIResponse> {
-    if (!this.selectedContext || !this.currentSessionId) {
+    // Capture sessionId as local variable to avoid non-null assertions
+    const sessionId = this.currentSessionId;
+    if (!this.selectedContext || !sessionId) {
       throw new Error('No element or session selected');
     }
 
     // Get session conversation history
-    const session = await Storage.getSessionById(this.currentSessionId);
+    const session = await Storage.getSessionById(sessionId);
     const conversationHistory = session?.messages || [];
 
-    // Add user message to session
-    await Storage.addMessageToSession(this.currentSessionId, {
-      role: 'user',
-      content: feedback,
-      timestamp: Date.now(),
-    });
+    // Add user message to session with error handling
+    try {
+      await Storage.addMessageToSession(sessionId, {
+        id: Storage.generateUUID(),
+        role: 'user',
+        content: feedback,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error('[MrPlug] Failed to save user message to session:', error);
+      throw new Error('Failed to save message. Please try again.');
+    }
 
     const request: FeedbackRequest = {
       elementContext: this.selectedContext,
@@ -660,15 +688,21 @@ class MrPlugContent {
         console.log('[MrPlug] AI analysis received:', response);
 
         if (response) {
-          // Add assistant response to session
-          await Storage.addMessageToSession(this.currentSessionId!, {
-            role: 'assistant',
-            content: response.analysis,
-            timestamp: Date.now(),
-          });
+          // Add assistant response to session with error handling
+          try {
+            await Storage.addMessageToSession(sessionId, {
+              id: Storage.generateUUID(),
+              role: 'assistant',
+              content: response.analysis,
+              timestamp: Date.now(),
+            });
 
-          // Auto-generate summary if needed
-          await SessionSummary.autoGenerateSummary(this.currentSessionId!, this.aiAgent);
+            // Auto-generate summary if needed
+            await SessionSummary.autoGenerateSummary(sessionId, this.aiAgent);
+          } catch (error) {
+            console.error('[MrPlug] Failed to save assistant message to session:', error);
+            // Don't throw - this is not critical, user already has the response
+          }
         }
       } catch (error) {
         console.error('[MrPlug] AI analysis failed:', error);

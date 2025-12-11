@@ -96,8 +96,8 @@ describe('AIAgent', () => {
       const agent = new AIAgent('sk-test-key');
 
       const conversationHistory = [
-        { role: 'user' as const, content: 'Make it blue', timestamp: 1 },
-        { role: 'assistant' as const, content: 'Changed color to blue', timestamp: 2 },
+        { id: '1', role: 'user' as const, content: 'Make it blue', timestamp: 1 },
+        { id: '2', role: 'assistant' as const, content: 'Changed color to blue', timestamp: 2 },
       ];
 
       // Format prompt with history

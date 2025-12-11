@@ -79,12 +79,14 @@ describe('Storage', () => {
     it('should add user and assistant messages to history', async () => {
       // User action: has a conversation
       const userMessage: ConversationMessage = {
+        id: Storage.generateUUID(),
         role: 'user',
         content: 'This button needs to be bigger',
         timestamp: Date.now(),
       };
 
       const assistantMessage: ConversationMessage = {
+        id: Storage.generateUUID(),
         role: 'assistant',
         content: 'I suggest increasing the padding',
         timestamp: Date.now(),
@@ -104,6 +106,7 @@ describe('Storage', () => {
       // User action: has a long conversation (60 messages)
       for (let i = 0; i < 60; i++) {
         await Storage.addConversationMessage({
+          id: Storage.generateUUID(),
           role: i % 2 === 0 ? 'user' : 'assistant',
           content: `Message ${i}`,
           timestamp: Date.now(),
@@ -119,6 +122,7 @@ describe('Storage', () => {
     it('should allow user to clear conversation history', async () => {
       // User action: adds messages then clears history
       await Storage.addConversationMessage({
+        id: Storage.generateUUID(),
         role: 'user',
         content: 'Test message',
         timestamp: Date.now(),

@@ -95,17 +95,27 @@ export class ElementHash {
     const tagName = element.tagName.toLowerCase();
 
     // Try text content first
-    const text = element.textContent?.trim();
-    if (text && text.length > 0) {
-      // Calculate available length for content (minus tag prefix)
-      const prefixLength = tagName.length + 2; // "tag: "
-      const contentMaxLength = maxLength - prefixLength;
+    const rawText = element.textContent?.trim();
+    if (rawText && rawText.length > 0) {
+      // Sanitize text to prevent XSS
+      const sanitizedText = rawText
+        .replace(/[<>]/g, '') // Remove potential HTML chars
+        .replace(/\s+/g, ' ') // Normalize whitespace
+        .trim();
 
-      const truncatedText = text.length > contentMaxLength
-        ? `${text.substring(0, contentMaxLength)}...`
-        : text;
+      if (sanitizedText.length === 0) {
+        // If sanitization removed everything, fall through to selector-based title
+      } else {
+        // Calculate available length for content (minus tag prefix)
+        const prefixLength = tagName.length + 2; // "tag: "
+        const contentMaxLength = maxLength - prefixLength;
 
-      return `${tagName}: ${truncatedText}`;
+        const truncatedText = sanitizedText.length > contentMaxLength
+          ? `${sanitizedText.substring(0, contentMaxLength)}...`
+          : sanitizedText;
+
+        return `${tagName}: ${truncatedText}`;
+      }
     }
 
     // Fallback to selector with ID or class
