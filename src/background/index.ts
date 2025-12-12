@@ -1,30 +1,8 @@
 import browser from 'webextension-polyfill';
 import { Storage } from '../lib/storage';
 import { ENV_CONFIG } from '../lib/env';
-import { MCPClient } from '../lib/mcp-client';
 
 console.log('[MrPlug] Background service worker started');
-
-// Initialize MCP client
-let mcpClient: MCPClient | null = null;
-
-// Initialize MCP client based on config
-async function initializeMCPClient() {
-  const config = await Storage.getConfig();
-
-  if (config.mcpEnabled && config.mcpServerUrl && config.mcpWsUrl) {
-    console.log('[MrPlug] Initializing MCP client...');
-    mcpClient = new MCPClient({
-      serverUrl: config.mcpServerUrl,
-      wsUrl: config.mcpWsUrl,
-      enabled: true,
-    });
-    await mcpClient.initialize();
-    console.log('[MrPlug] MCP client initialized');
-  } else {
-    console.log('[MrPlug] MCP integration disabled');
-  }
-}
 
 // Auto-configure on startup if env config exists and no API key is set
 (async () => {
@@ -44,10 +22,7 @@ async function initializeMCPClient() {
         claudeCodeEnabled: false,
         autoScreenshot: true,
         keyboardShortcut: 'Alt+Shift+F',
-        // MCP server defaults
-        mcpEnabled: false,
-        mcpServerUrl: 'http://localhost:3001',
-        mcpWsUrl: 'ws://localhost:3002',
+        localAppPath: '/Users/yuri/ojfbot/cv-builder', // Default source code path
       });
 
       console.log('[MrPlug] ✅ Extension configured and ready to use!');
@@ -59,9 +34,6 @@ async function initializeMCPClient() {
       console.log('[MrPlug] Has OpenAI key:', !!currentConfig.openaiApiKey);
     }
   }
-
-  // Initialize MCP client
-  await initializeMCPClient();
 })();
 
 // Handle installation
@@ -83,6 +55,8 @@ browser.runtime.onInstalled.addListener(async (details) => {
         claudeCodeEnabled: false,
         autoScreenshot: true,
         keyboardShortcut: 'Alt+Shift+F',
+        localAppPath: '/Users/yuri/ojfbot/cv-builder', // Default source code path
+        githubRepo: 'ojfbot/cv-builder', // Default GitHub repo
       });
 
       console.log('[MrPlug] ✅ Extension configured and ready to use!');
@@ -96,6 +70,8 @@ browser.runtime.onInstalled.addListener(async (details) => {
         claudeCodeEnabled: false,
         autoScreenshot: true,
         keyboardShortcut: 'Alt+Shift+F',
+        localAppPath: '/Users/yuri/ojfbot/cv-builder', // Default source code path
+        githubRepo: 'ojfbot/cv-builder', // Default GitHub repo
       });
 
       // Open options page on first install
@@ -158,11 +134,27 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
     case 'get-recent-feedback':
       return await Storage.getRecentFeedback();
 
-    case 'session-updated':
-      // Sync session to MCP server
-      if (mcpClient && message.session) {
-        await mcpClient.sendSessionUpdate(message.session);
+    case 'open-settings':
+      // Open settings page and track referring tab
+      const currentTabs = await browser.tabs.query({ active: true, currentWindow: true });
+      const referringTabId = currentTabs[0]?.id;
+
+      const optionsUrl = browser.runtime.getURL('options.html');
+      const existingTabs = await browser.tabs.query({ url: optionsUrl });
+
+      if (existingTabs.length > 0 && existingTabs[0].id) {
+        // Settings already open, focus it
+        await browser.tabs.update(existingTabs[0].id, { active: true });
+      } else {
+        // Open new settings tab
+        await browser.tabs.create({ url: optionsUrl });
       }
+
+      // Store referring tab ID for return navigation
+      if (referringTabId) {
+        await browser.storage.local.set({ mrplug_referring_tab: referringTabId });
+      }
+
       return { success: true };
 
     case 'activate-feedback':
