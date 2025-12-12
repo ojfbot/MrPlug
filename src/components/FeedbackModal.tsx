@@ -11,8 +11,6 @@ import type { ElementContext, AIResponse, ConversationMessage, ClaudeCodePayload
 import { ContextCapture } from '../lib/context-capture';
 import { Storage } from '../lib/storage';
 import { SessionList } from './SessionList';
-import { ChatMessage } from './ChatMessage';
-import { createProgressMessage } from '../lib/chat-helpers';
 
 interface FeedbackModalProps {
   isOpen: boolean;
@@ -57,6 +55,14 @@ export function FeedbackModal({
   const [config, setConfig] = useState<ExtensionConfig | null>(null);
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
 
+  // Helper to create simple status messages
+  const createStatusMessage = (content: string): ConversationMessage => ({
+    id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    role: 'system',
+    content,
+    timestamp: Date.now(),
+  });
+
   const handleActionClick = async (action: AIResponse['suggestedActions'][0]) => {
     console.log('[MrPlug] Action clicked:', action);
 
@@ -90,10 +96,7 @@ export function FeedbackModal({
 
     try {
       // Add progress message
-      const progressMsg = createProgressMessage(
-        '🐙 Creating GitHub issue...',
-        'create_github_issue'
-      );
+      const progressMsg = createStatusMessage('🐙 Creating GitHub issue...');
       setConversationHistory((prev) => [...prev, progressMsg]);
 
       // Prepare issue body
@@ -125,9 +128,8 @@ export function FeedbackModal({
       const issue = await response.json();
 
       // Add success message
-      const successMsg = createProgressMessage(
-        `✅ GitHub issue created: #${issue.number} - ${issue.html_url}`,
-        'github_issue_created'
+      const successMsg = createStatusMessage(
+        `✅ GitHub issue created: #${issue.number} - ${issue.html_url}`
       );
       setConversationHistory((prev) =>
         prev.filter((m) => m.id !== progressMsg.id).concat(successMsg)
@@ -136,9 +138,8 @@ export function FeedbackModal({
       console.log('[MrPlug] GitHub issue created:', issue.html_url);
     } catch (error) {
       console.error('[MrPlug] Failed to create GitHub issue:', error);
-      const errorMsg = createProgressMessage(
-        `❌ Failed to create issue: ${error instanceof Error ? error.message : String(error)}`,
-        'github_error'
+      const errorMsg = createStatusMessage(
+        `❌ Failed to create issue: ${error instanceof Error ? error.message : String(error)}`
       );
       setConversationHistory((prev) => [...prev, errorMsg]);
     }
@@ -716,12 +717,36 @@ export function FeedbackModal({
                 </div>
               ) : (
                 conversationHistory.map((msg) => (
-                  <ChatMessage
+                  <div
                     key={msg.id}
-                    message={msg}
-                    isStreaming={msg.isStreaming}
-                    debugInfo={msg.metadata}
-                  />
+                    style={{
+                      marginBottom: '0.75rem',
+                      padding: '0.75rem',
+                      background: msg.role === 'user' ? 'var(--cds-layer-02)' : 'var(--cds-layer-01)',
+                      borderRadius: '4px',
+                      border: '1px solid var(--cds-border-subtle)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                      <Tag
+                        type={msg.role === 'user' ? 'blue' : msg.role === 'assistant' ? 'green' : 'gray'}
+                        size="sm"
+                      >
+                        {msg.role === 'system' ? 'status' : msg.role}
+                      </Tag>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--cds-text-secondary)' }}>
+                        {new Date(msg.timestamp).toLocaleTimeString()}
+                      </span>
+                    </div>
+                    <div style={{
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      fontSize: '0.875rem',
+                      color: 'var(--cds-text-primary)',
+                    }}>
+                      {msg.content}
+                    </div>
+                  </div>
                 ))
               )}
             </div>
