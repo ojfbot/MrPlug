@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import browser from 'webextension-polyfill';
 import {
   Modal,
   TextArea,
@@ -10,6 +11,8 @@ import type { ElementContext, AIResponse, ConversationMessage, ClaudeCodePayload
 import { ContextCapture } from '../lib/context-capture';
 import { Storage } from '../lib/storage';
 import { SessionList } from './SessionList';
+import { ChatMessage } from './ChatMessage';
+import { createProgressMessage } from '../lib/chat-helpers';
 
 interface FeedbackModalProps {
   isOpen: boolean;
@@ -59,13 +62,7 @@ export function FeedbackModal({
 
     switch (action.type) {
       case 'github-issue':
-        // TODO: Create GitHub issue
-        alert(`Create GitHub Issue:\n\nTitle: ${action.title}\n\nDescription: ${action.description}\n\nPriority: ${action.priority}`);
-        break;
-
-      case 'claude-code':
-        // TODO: Send to Claude Code
-        alert(`Send to Claude Code:\n\n${action.title}\n\n${action.description}`);
+        await handleGitHubIssue(action);
         break;
 
       case 'manual':
@@ -75,6 +72,75 @@ export function FeedbackModal({
 
       default:
         console.warn('[MrPlug] Unknown action type:', action.type);
+    }
+  };
+
+  const handleGitHubIssue = async (action: AIResponse['suggestedActions'][0]) => {
+    if (!config?.githubToken || !config?.githubRepo) {
+      const proceed = confirm(
+        'GitHub integration not configured.\n\n' +
+        'To create issues automatically, add your GitHub token and repo in settings.\n\n' +
+        'Open settings now?'
+      );
+      if (proceed) {
+        await browser.runtime.sendMessage({ type: 'open-settings' });
+      }
+      return;
+    }
+
+    try {
+      // Add progress message
+      const progressMsg = createProgressMessage(
+        '🐙 Creating GitHub issue...',
+        'create_github_issue'
+      );
+      setConversationHistory((prev) => [...prev, progressMsg]);
+
+      // Prepare issue body
+      const issueBody = `${action.description}\n\n` +
+        `**Priority**: ${action.priority}\n\n` +
+        `**Element**: ${elementContext?.tagName || 'Unknown'}\n` +
+        `**Page**: ${window.location.href}\n\n` +
+        `---\n` +
+        `*Created via MrPlug browser extension*`;
+
+      // Create issue via GitHub API
+      const response = await fetch(`https://api.github.com/repos/${config.githubRepo}/issues`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `token ${config.githubToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: action.title,
+          body: issueBody,
+          labels: ['mrplug', `priority-${action.priority}`],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`GitHub API responded with ${response.status}`);
+      }
+
+      const issue = await response.json();
+
+      // Add success message
+      const successMsg = createProgressMessage(
+        `✅ GitHub issue created: #${issue.number} - ${issue.html_url}`,
+        'github_issue_created'
+      );
+      setConversationHistory((prev) =>
+        prev.filter((m) => m.id !== progressMsg.id).concat(successMsg)
+      );
+
+      console.log('[MrPlug] GitHub issue created:', issue.html_url);
+    } catch (error) {
+      console.error('[MrPlug] Failed to create GitHub issue:', error);
+      const errorMsg = createProgressMessage(
+        `❌ Failed to create issue: ${error instanceof Error ? error.message : String(error)}`,
+        'github_error'
+      );
+      setConversationHistory((prev) => [...prev, errorMsg]);
     }
   };
 
@@ -120,7 +186,9 @@ export function FeedbackModal({
   // Load config when modal opens
   useEffect(() => {
     if (isOpen) {
-      Storage.getConfig().then(setConfig);
+      Storage.getConfig().then((cfg) => {
+        setConfig(cfg);
+      });
       loadSessions();
     }
   }, [isOpen]); // loadSessions is stable (empty deps), no need to include
@@ -274,11 +342,9 @@ export function FeedbackModal({
         // Carbon TextArea ref points to wrapper, need to find actual textarea
         const textarea = textAreaRef.current?.querySelector('textarea') as HTMLTextAreaElement;
         if (textarea) {
-          console.log('[MrPlug] Focusing textarea element');
           textarea.focus();
-        } else {
-          console.warn('[MrPlug] Could not find textarea element to focus');
         }
+        // Silently ignore if textarea not ready yet
       }, 150);
     }
   }, [isOpen, viewingContext, loading]);
@@ -650,19 +716,12 @@ export function FeedbackModal({
                 </div>
               ) : (
                 conversationHistory.map((msg) => (
-                  <div key={msg.id} style={{ marginBottom: '0.75rem' }}>
-                    <Tag type={msg.role === 'user' ? 'blue' : 'green'} size="sm">
-                      {msg.role}
-                    </Tag>
-                    <div style={{
-                      marginTop: '0.25rem',
-                      fontSize: '0.875rem',
-                      color: 'var(--cds-text-primary)',
-                      lineHeight: '1.4',
-                    }}>
-                      {msg.content}
-                    </div>
-                  </div>
+                  <ChatMessage
+                    key={msg.id}
+                    message={msg}
+                    isStreaming={msg.isStreaming}
+                    debugInfo={msg.metadata}
+                  />
                 ))
               )}
             </div>
