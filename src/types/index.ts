@@ -26,9 +26,15 @@ export interface FeedbackRequest {
 
 export interface ConversationMessage {
   id: string; // UUID for stable React keys
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
+  isStreaming?: boolean;
+  metadata?: {
+    source?: 'mcp' | 'local' | 'extension';
+    mcpActivity?: string;
+    toolCalls?: string[];
+  };
 }
 
 export interface AIResponse {
