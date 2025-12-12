@@ -82,6 +82,7 @@ export class BrowserPluginManager extends EventEmitter {
   private sessionStore: Map<string, FullSession> = new Map();
   private commandQueue: Array<BrowserCommand> = [];
   private wsConnections: Map<string, WebSocket> = new Map();
+  private implementationQueue: any[] = [];
 
   constructor() {
     super();
@@ -221,6 +222,15 @@ export class BrowserPluginManager extends EventEmitter {
   }
 
   /**
+   * Get full session details including messages and element context
+   * @param sessionId Session ID
+   */
+  async getFullSession(sessionId: string): Promise<FullSession | null> {
+    const session = this.sessionStore.get(sessionId);
+    return session || null;
+  }
+
+  /**
    * Query conversation history from a session
    * @param sessionId Session ID
    * @param limit Optional limit on number of messages
@@ -324,7 +334,7 @@ export class BrowserPluginManager extends EventEmitter {
    * Broadcast message to all connected browser plugin instances
    * @param message Message to broadcast
    */
-  private broadcastToPlugin(message: any): void {
+  broadcastToPlugin(message: any): void {
     console.log("[MCP -> Plugin]", message.type);
 
     // Send to all connected WebSocket clients
@@ -383,5 +393,22 @@ export class BrowserPluginManager extends EventEmitter {
    */
   isConnected(): boolean {
     return this.wsConnections.size > 0 || this.browserState.isConnected;
+  }
+
+  /**
+   * Queue an implementation request from the browser
+   */
+  queueImplementationRequest(request: any): void {
+    this.implementationQueue.push(request);
+    console.log(`[Implementation Queue] Added request ${request.id}, queue size: ${this.implementationQueue.length}`);
+  }
+
+  /**
+   * Get all pending implementation requests (for Claude Code to poll)
+   */
+  getImplementationRequests(): any[] {
+    const requests = [...this.implementationQueue];
+    this.implementationQueue = [];  // Clear queue after retrieval
+    return requests;
   }
 }

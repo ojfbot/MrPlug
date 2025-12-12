@@ -3,6 +3,7 @@
  * Handles bi-directional communication with the MCP server
  */
 
+import browser from 'webextension-polyfill';
 import type { ChatSession } from '../types';
 import { Storage } from './storage';
 
@@ -16,9 +17,9 @@ export interface MCPConfig {
 export class MCPClient {
   private config: MCPConfig;
   private ws: WebSocket | null = null;
-  private reconnectTimer: number | null = null;
-  private stateUpdateTimer: number | null = null;
-  private commandPollTimer: number | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private stateUpdateTimer: ReturnType<typeof setInterval> | null = null;
+  private commandPollTimer: ReturnType<typeof setInterval> | null = null;
   private isConnected: boolean = false;
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 5;
@@ -35,14 +36,19 @@ export class MCPClient {
    */
   async initialize(): Promise<void> {
     if (!this.config.enabled) {
-      console.log('[MCP Client] Disabled in config');
+      console.log('[MCP Client] ⚠️ MCP integration is disabled in config');
       return;
     }
 
-    console.log('[MCP Client] Initializing...');
+    console.log('[MCP Client] 🚀 Initializing MCP client...');
+    console.log('[MCP Client] HTTP Server:', this.config.serverUrl);
+    console.log('[MCP Client] WebSocket Server:', this.config.wsUrl);
+
     await this.connectWebSocket();
     this.startStateSync();
     this.startCommandPolling();
+
+    console.log('[MCP Client] ✅ MCP client initialization complete');
   }
 
   /**
@@ -59,9 +65,18 @@ export class MCPClient {
       this.ws = new WebSocket(this.config.wsUrl);
 
       this.ws.onopen = () => {
-        console.log('[MCP Client] WebSocket connected');
+        console.log('[MCP Client] ✅ WebSocket connected successfully!');
+        console.log('[MCP Client] Server URL:', this.config.wsUrl);
         this.isConnected = true;
         this.reconnectAttempts = 0;
+
+        // Broadcast connection status to content scripts
+        browser.runtime.sendMessage({
+          type: 'mcp-connection-status',
+          connected: true,
+        }).catch(() => {
+          // Content script might not be loaded yet
+        });
       };
 
       this.ws.onmessage = (event) => {
@@ -79,8 +94,17 @@ export class MCPClient {
       };
 
       this.ws.onclose = () => {
-        console.log('[MCP Client] WebSocket closed');
+        console.log('[MCP Client] ❌ WebSocket closed');
         this.isConnected = false;
+
+        // Broadcast disconnection to content scripts
+        browser.runtime.sendMessage({
+          type: 'mcp-connection-status',
+          connected: false,
+        }).catch(() => {
+          // Ignore if no listeners
+        });
+
         this.scheduleReconnect();
       };
     } catch (error) {
@@ -107,7 +131,7 @@ export class MCPClient {
 
     console.log(`[MCP Client] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
 
-    this.reconnectTimer = window.setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connectWebSocket();
     }, delay);
@@ -148,6 +172,10 @@ export class MCPClient {
         this.handleSessionMessage(message);
         break;
 
+      case 'implementation_progress':
+        this.handleImplementationProgress(message);
+        break;
+
       case 'ack':
         console.log('[MCP Client] Server acknowledged:', message.originalType);
         break;
@@ -158,6 +186,43 @@ export class MCPClient {
 
       default:
         console.warn('[MCP Client] Unknown message type:', message.type);
+    }
+  }
+
+  /**
+   * Handle implementation progress updates from Claude Code
+   */
+  private async handleImplementationProgress(message: any): Promise<void> {
+    console.log('[MCP Client] Implementation progress:', message.message);
+
+    const {requestId, sessionId, message: progressMessage, status, details} = message;
+
+    // Add progress message to the session
+    const messageObj = {
+      id: `progress-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      role: 'system' as const,
+      content: progressMessage,
+      timestamp: Date.now(),
+      metadata: {
+        source: 'mcp' as const,
+        mcpActivity: `implementation_${status}`,
+        toolCalls: details?.toolCalls,
+      },
+    };
+
+    await Storage.addMessageToSession(sessionId, messageObj);
+
+    // Notify content script to update UI
+    const tabs = await browser.tabs.query({active: true, currentWindow: true});
+    if (tabs[0]?.id) {
+      await browser.tabs.sendMessage(tabs[0].id, {
+        type: 'implementation-progress',
+        requestId,
+        sessionId,
+        message: messageObj,
+      }).catch(() => {
+        // Content script might not be ready
+      });
     }
   }
 
@@ -224,7 +289,7 @@ export class MCPClient {
     }
 
     // Open new tab with URL
-    const tab = await chrome.tabs.create({ url: data.url });
+    const tab = await browser.tabs.create({ url: data.url });
 
     // If elementHash is provided, select element after page loads
     if (command.elementHash && tab.id) {
@@ -232,7 +297,7 @@ export class MCPClient {
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Send message to content script to highlight element
-      await chrome.tabs.sendMessage(tab.id, {
+      await browser.tabs.sendMessage(tab.id, {
         type: 'highlight-element',
         elementHash: command.elementHash,
       });
@@ -248,9 +313,9 @@ export class MCPClient {
       return;
     }
 
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
     if (tabs[0]?.id) {
-      await chrome.tabs.sendMessage(tabs[0].id, {
+      await browser.tabs.sendMessage(tabs[0].id, {
         type: 'highlight-element',
         elementHash: command.elementHash,
       });
@@ -261,9 +326,9 @@ export class MCPClient {
    * Handle capture_screenshot command
    */
   private async handleCaptureScreenshot(command: any): Promise<void> {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
     if (tabs[0]?.id) {
-      const dataUrl = await chrome.tabs.captureVisibleTab(undefined, {
+      const dataUrl = await browser.tabs.captureVisibleTab(undefined, {
         format: 'png',
       });
 
@@ -282,9 +347,9 @@ export class MCPClient {
    */
   private async handleCreateIssue(command: any): Promise<void> {
     // Trigger GitHub issue creation via content script/popup
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
     if (tabs[0]?.id) {
-      await chrome.tabs.sendMessage(tabs[0].id, {
+      await browser.tabs.sendMessage(tabs[0].id, {
         type: 'create-issue',
         data: command.data,
       });
@@ -296,9 +361,9 @@ export class MCPClient {
    */
   private async handleStartSession(command: any): Promise<void> {
     // Activate feedback mode and start new session
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
     if (tabs[0]?.id) {
-      await chrome.tabs.sendMessage(tabs[0].id, {
+      await browser.tabs.sendMessage(tabs[0].id, {
         type: 'toggle-feedback',
         elementHash: command.elementHash,
       });
@@ -316,15 +381,16 @@ export class MCPClient {
     const session = sessions.find((s) => s.id === message.sessionId);
 
     if (session) {
-      session.messages.push(message.message);
-      session.updatedAt = Date.now();
-      session.lastMessageAt = Date.now();
-      await Storage.updateChatSession(session);
+      // Add message to session using Storage method
+      await Storage.addMessageToSession(
+        message.sessionId,
+        message.message
+      );
 
       // Notify content script if session is active
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tabs = await browser.tabs.query({ active: true, currentWindow: true });
       if (tabs[0]?.id) {
-        await chrome.tabs.sendMessage(tabs[0].id, {
+        await browser.tabs.sendMessage(tabs[0].id, {
           type: 'session-updated',
           sessionId: message.sessionId,
         });
@@ -340,7 +406,7 @@ export class MCPClient {
     this.sendStateUpdate();
 
     // Set up periodic updates
-    this.stateUpdateTimer = window.setInterval(() => {
+    this.stateUpdateTimer = setInterval(() => {
       this.sendStateUpdate();
     }, this.config.pollInterval!);
 
@@ -407,7 +473,7 @@ export class MCPClient {
    * Start polling for commands from MCP server
    */
   private startCommandPolling(): void {
-    this.commandPollTimer = window.setInterval(async () => {
+    this.commandPollTimer = setInterval(async () => {
       await this.pollCommands();
     }, 2000); // Poll every 2 seconds
 
@@ -438,9 +504,9 @@ export class MCPClient {
    * Get list of active localhost tabs
    */
   private async getActiveLocalhostTabs(): Promise<string[]> {
-    const tabs = await chrome.tabs.query({});
+    const tabs = await browser.tabs.query({});
     return tabs
-      .filter((tab) => {
+      .filter((tab: any) => {
         if (!tab.url) return false;
         try {
           const url = new URL(tab.url);
@@ -449,7 +515,7 @@ export class MCPClient {
           return false;
         }
       })
-      .map((tab) => tab.url!);
+      .map((tab: any) => tab.url!);
   }
 
   /**

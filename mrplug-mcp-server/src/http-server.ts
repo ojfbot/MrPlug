@@ -68,12 +68,132 @@ app.get("/plugin/commands", (req, res) => {
   res.json({ commands });
 });
 
-// Endpoint to check connection status
-app.get("/plugin/status", (req, res) => {
-  res.json({
-    connected: pluginManager.isConnected(),
-    timestamp: Date.now(),
-  });
+// Endpoint to get browser state (used by STDIO server)
+app.get("/plugin/status", async (req, res) => {
+  try {
+    const includeDetails = req.query.includeDetails === "true";
+    const state = await pluginManager.getBrowserState(includeDetails);
+    res.json(state);
+  } catch (error: any) {
+    res.status(500).json({
+      error: "Failed to get browser state",
+      message: error.message,
+    });
+  }
+});
+
+// Endpoint to get all sessions (used by STDIO server)
+app.get("/plugin/sessions", async (req, res) => {
+  try {
+    const sessions = await pluginManager.listSessions();
+    res.json({ sessions, count: sessions.length });
+  } catch (error: any) {
+    res.status(500).json({
+      error: "Failed to list sessions",
+      message: error.message,
+    });
+  }
+});
+
+// Endpoint to get specific session (used by STDIO server)
+app.get("/plugin/session/:id", async (req, res) => {
+  try {
+    const session = await pluginManager.getFullSession(req.params.id);
+    if (!session) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+    res.json(session);
+  } catch (error: any) {
+    res.status(500).json({
+      error: "Failed to get session",
+      message: error.message,
+    });
+  }
+});
+
+// Endpoint to send command to browser (used by STDIO server)
+app.post("/plugin/command", async (req, res) => {
+  try {
+    const { command, sessionId, elementHash, data } = req.body;
+    const result = await pluginManager.sendCommand(command, sessionId, elementHash, data);
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({
+      error: "Failed to send command",
+      message: error.message,
+    });
+  }
+});
+
+// Endpoint to request Claude Code to implement a suggestion
+app.post("/plugin/implement", async (req, res) => {
+  try {
+    const { sessionId, action, elementContext, sourceCodePath } = req.body;
+
+    console.log('[Implement] Received implementation request:', action.title);
+    console.log('[Implement] Session ID:', sessionId);
+    console.log('[Implement] Source code path:', sourceCodePath);
+
+    // Queue the implementation request
+    const requestId = `impl_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    pluginManager.queueImplementationRequest({
+      id: requestId,
+      sessionId,
+      action,
+      elementContext,
+      sourceCodePath,
+      timestamp: Date.now(),
+      status: 'queued',
+    });
+
+    // Emit event that Claude Code can listen to
+    pluginManager.emit('implementation_requested', {
+      id: requestId,
+      sessionId,
+      action,
+      sourceCodePath,
+    });
+
+    res.json({
+      success: true,
+      requestId,
+      message: 'Implementation request queued for Claude Code',
+    });
+  } catch (error: any) {
+    console.error('[Implement] Error:', error);
+    res.status(500).json({
+      error: 'Failed to queue implementation',
+      message: error.message,
+    });
+  }
+});
+
+// Endpoint for Claude Code to send progress updates
+app.post("/implementation/progress", async (req, res) => {
+  try {
+    const { requestId, sessionId, message, status, details } = req.body;
+
+    console.log('[Implement Progress]', requestId, ':', message);
+
+    // Broadcast progress to browser via WebSocket
+    pluginManager.broadcastToPlugin({
+      type: 'implementation_progress',
+      requestId,
+      sessionId,
+      message,
+      status,
+      details,
+      timestamp: Date.now(),
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({
+      error: 'Failed to send progress',
+      message: error.message,
+    });
+  }
 });
 
 // ==================== WebSocket for Real-time Communication ====================
