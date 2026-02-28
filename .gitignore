@@ -81,3 +81,7 @@ firefox-debug.log
 .local/
 local-config.json
 dev-settings.json
+
+# Managed by core — do not commit
+domain-knowledge/
+.claude/commands/
