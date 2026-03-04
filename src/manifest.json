@@ -10,10 +10,7 @@
     "tabs"
   ],
   "host_permissions": [
-    "http://localhost/*",
-    "http://127.0.0.1/*",
-    "https://*.jim.software/*",
-    "https://api.github.com/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "src/background/index.ts",
