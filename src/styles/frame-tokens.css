@@ -1,0 +1,165 @@
+/**
+ * Carbon is a style layer.
+ * These CSS custom properties override Carbon's token system.
+ *
+ * :root defines --ojf-* tokens for light mode (Carbon white theme default).
+ * .cds--g100 overrides them for dark mode — same specificity, later load order wins.
+ *
+ * App.tsx syncs the theme class to <html> via useEffect so body + :root-resolved
+ * tokens switch correctly alongside the <Theme> wrapper.
+ */
+
+/* ── ojfbot shared tokens (active in both light + dark unless overridden) ── */
+:root {
+  --ojf-accent:        #5b4de0;  /* purple accessible on white */
+  --ojf-accent-hover:  #4a3ecb;
+  --ojf-accent-active: #3d31b8;  /* pressed — one shade darker than hover */
+  --ojf-accent-subtle: rgba(91, 77, 224, 0.10);
+  --ojf-font-sans:     'IBM Plex Sans', sans-serif;
+  --ojf-font-mono:     'IBM Plex Mono', 'JetBrains Mono', 'Fira Code', monospace;
+  --ojf-ease:          cubic-bezier(0.16, 1, 0.3, 1);
+  --ojf-duration-fast: 120ms;
+  --ojf-duration-base: 200ms;
+
+  /* Surface scale (light mode) */
+  --ojf-bg:            #ffffff;
+  --ojf-surface-1:     #f4f4f4;
+  --ojf-surface-2:     #e0e0e0;
+  --ojf-surface-3:     #c6c6c6;
+
+  /* Border (light mode) */
+  --ojf-border:        #c6c6c6;
+  --ojf-border-subtle: #e0e0e0;
+
+  /* Text (light mode) */
+  --ojf-text-primary:  #161616;
+  --ojf-text-secondary:#525252;
+  --ojf-text-muted:    #8d8d8d;
+
+  /* Light mode header/nav — Carbon's <Header> defaults to #161616 in white theme;
+     override here so light mode has a clearly branded purple header while dark mode
+     uses the near-black surface-1 below. */
+  --cds-header-background:   var(--ojf-accent);    /* #5b4de0 brand purple */
+  --cds-header-border:       transparent;
+  --cds-side-nav-background: var(--ojf-surface-1); /* #f4f4f4 sidebar */
+
+  /* Override Carbon interactive — ojf purple in both modes */
+  --cds-interactive:             var(--ojf-accent);
+  --cds-focus:                   var(--ojf-accent);
+  --cds-link-primary:            var(--ojf-accent);
+  --cds-link-primary-hover:      var(--ojf-accent-hover);
+  --cds-button-primary:          var(--ojf-accent);
+  --cds-button-primary-hover:    var(--ojf-accent-hover);
+  --cds-button-primary-active:   var(--ojf-accent-active);
+}
+
+/* ── ojfbot dark overrides (purple accent, near-black surfaces) ── */
+.cds--g100 {
+  /* Brand */
+  --ojf-accent:        #7c6af7;
+  --ojf-accent-hover:  #6b59e8;
+  --ojf-accent-active: #5848d9;  /* pressed — one shade darker than hover */
+  --ojf-accent-subtle: rgba(124, 106, 247, 0.12);
+
+  /* Surface scale */
+  --ojf-bg:            #0a0a0a;
+  --ojf-surface-1:     #111111;
+  --ojf-surface-2:     #181818;
+  --ojf-surface-3:     #222222;
+
+  /* Border */
+  --ojf-border:        #2a2a2a;
+  --ojf-border-subtle: #1e1e1e;
+
+  /* Text */
+  --ojf-text-primary:  #e8e8e8;
+  --ojf-text-secondary:#a0a0a0;
+  --ojf-text-muted:    #6f6f6f;  /* was #555555 — too dark for placeholder text on dark surfaces */
+
+  /* ── Carbon token overrides ── */
+  --cds-background:              var(--ojf-bg);
+  --cds-background-hover:        var(--ojf-surface-2);
+  --cds-layer-01:                var(--ojf-surface-1);
+  --cds-layer-02:                var(--ojf-surface-2);
+  --cds-layer-03:                var(--ojf-surface-3);
+
+  /* Hover/selected/active — calibrated to be visible against #111111 side-nav bg */
+  --ojf-surface-hover:           #242424;
+  --ojf-surface-select:          #2e2e2e;
+  --ojf-surface-active:          #1c1c1c;
+
+  --cds-layer-hover:             var(--ojf-surface-hover);
+  --cds-layer-hover-01:          var(--ojf-surface-hover);
+  --cds-layer-selected:          var(--ojf-surface-select);
+  --cds-layer-selected-01:       var(--ojf-surface-select);
+  --cds-layer-active:            var(--ojf-surface-active);
+  --cds-layer-active-01:         var(--ojf-surface-active);
+
+  --cds-border-subtle-01:        var(--ojf-border-subtle);
+  --cds-border-strong-01:        var(--ojf-border);
+  --cds-text-primary:            var(--ojf-text-primary);
+  --cds-text-secondary:          var(--ojf-text-secondary);
+  --cds-text-placeholder:        var(--ojf-text-muted);
+  --cds-interactive:             var(--ojf-accent);
+  --cds-focus:                   var(--ojf-accent);
+  --cds-link-primary:            var(--ojf-accent);
+  --cds-link-primary-hover:      var(--ojf-accent-hover);
+  --cds-button-primary:          var(--ojf-accent);
+  --cds-button-primary-hover:    var(--ojf-accent-hover);
+  --cds-button-primary-active:   var(--ojf-accent-active);
+  --cds-icon-primary:            var(--ojf-text-primary);
+  --cds-icon-secondary:          var(--ojf-text-secondary);
+  --cds-header-background:       var(--ojf-surface-1);
+  --cds-header-border:           transparent;  /* no visible line under header or beside hamburger */
+  --cds-side-nav-background:     var(--ojf-surface-1);
+}
+
+/* ── Hamburger button: active state when sidebar is open ─────── */
+/*    Carbon's default active bg is too light against our near-black header. */
+.cds--g100 .cds--header__action--active,
+.cds--g100 .cds--header__action--active:hover {
+  background-color: var(--ojf-surface-hover);
+}
+
+/* MrPlug alias — popup/options use data-theme="dark" via ThemeManager */
+[data-theme="dark"] {
+  --ojf-accent:        #7c6af7;
+  --ojf-accent-hover:  #6b59e8;
+  --ojf-accent-active: #5848d9;
+  --ojf-accent-subtle: rgba(124, 106, 247, 0.12);
+  --ojf-bg:            #0a0a0a;
+  --ojf-surface-1:     #111111;
+  --ojf-surface-2:     #181818;
+  --ojf-surface-3:     #222222;
+  --ojf-border:        #2a2a2a;
+  --ojf-border-subtle: #1e1e1e;
+  --ojf-text-primary:  #e8e8e8;
+  --ojf-text-secondary:#a0a0a0;
+  --ojf-text-muted:    #6f6f6f;
+  --cds-background:              var(--ojf-bg);
+  --cds-background-hover:        var(--ojf-surface-2);
+  --cds-layer-01:                var(--ojf-surface-1);
+  --cds-layer-02:                var(--ojf-surface-2);
+  --cds-layer-03:                var(--ojf-surface-3);
+  --cds-border-subtle-01:        var(--ojf-border-subtle);
+  --cds-border-strong-01:        var(--ojf-border);
+  --cds-text-primary:            var(--ojf-text-primary);
+  --cds-text-secondary:          var(--ojf-text-secondary);
+  --cds-text-placeholder:        var(--ojf-text-muted);
+  --cds-interactive:             var(--ojf-accent);
+  --cds-focus:                   var(--ojf-accent);
+  --cds-button-primary:          var(--ojf-accent);
+  --cds-button-primary-hover:    var(--ojf-accent-hover);
+  --cds-button-primary-active:   var(--ojf-accent-active);
+}
+
+/*
+ * ── Accent skin switcher (future) ───────────────────────────────────────────
+ * When the ThemeSwitcher component lands, add blocks here keyed by data-theme:
+ *
+ *   [data-theme="material"] { --ojf-accent: #6750a4; ... }
+ *   [data-theme="arc"]      { --ojf-accent: #ff6b6b; ... }
+ *
+ * Only ojf-brand tokens need overriding — Carbon tokens derive from them
+ * via the .cds--g100 block above.
+ */

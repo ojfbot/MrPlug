@@ -442,7 +442,7 @@ export function FeedbackModal({
     <Modal
       open={isOpen}
       onRequestClose={onClose}
-      modalHeading="Feedback Assistant"
+      modalHeading={elementContext ? `<${elementContext.tagName.toLowerCase()}>${elementContext.id ? `#${elementContext.id}` : ''}` : 'MrPlug'}
       primaryButtonText="Send"
       secondaryButtonText="Close"
       onRequestSubmit={handleSubmit}

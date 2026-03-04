@@ -1,6 +1,8 @@
 import browser from 'webextension-polyfill';
 import { Storage } from '../lib/storage';
+import { AIAgent } from '../lib/ai-agent';
 import { ENV_CONFIG } from '../lib/env';
+import type { AIResponse } from '../types';
 
 console.log('[MrPlug] Background service worker started');
 
@@ -195,6 +197,41 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
 
         return { success: false, error: errorMessage };
       }
+
+    case 'ai-request': {
+      const config = await Storage.getConfig();
+      const apiKey = config.anthropicApiKey || config.openaiApiKey;
+
+      if (!apiKey || config.llmProvider === 'none') {
+        const notConfigured: AIResponse = {
+          analysis: 'AI not configured. Open extension settings and add an API key.',
+          suggestedActions: [{ type: 'manual', title: 'Open Settings', description: 'Add an API key in extension settings', priority: 'high' }],
+          requiresCodeChange: false,
+          confidence: 0,
+        };
+        return notConfigured;
+      }
+
+      try {
+        const agent = new AIAgent(apiKey);
+        const response = await agent.analyzeFeedback(
+          message.userInput,
+          message.elementContext,
+          message.conversationHistory || [],
+          message.agentMode || 'ui'
+        );
+        return response;
+      } catch (err) {
+        console.error('[MrPlug] Background AI call failed:', err);
+        const failed: AIResponse = {
+          analysis: err instanceof Error ? err.message : 'AI call failed',
+          suggestedActions: [],
+          requiresCodeChange: false,
+          confidence: 0,
+        };
+        return failed;
+      }
+    }
 
     default:
       console.warn('[MrPlug] Unknown message type:', message.type);

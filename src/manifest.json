@@ -12,6 +12,7 @@
   "host_permissions": [
     "http://localhost/*",
     "http://127.0.0.1/*",
+    "https://*.jim.software/*",
     "https://api.github.com/*"
   ],
   "background": {
@@ -20,7 +21,11 @@
   },
   "content_scripts": [
     {
-      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*.jim.software/*"
+      ],
       "js": ["src/content/index.tsx"],
       "run_at": "document_end"
     }
@@ -43,9 +48,9 @@
     "trigger-feedback": {
       "suggested_key": {
         "default": "Alt+Shift+F",
-        "mac": "MacCtrl+Shift+F"
+        "mac": "Command+Shift+F"
       },
-      "description": "Trigger UI feedback interface (or use fn-F1 + click)"
+      "description": "Toggle MrPlug cursor mode — then click any element"
     }
   },
   "content_security_policy": {
