@@ -104,11 +104,26 @@ browser.runtime.onInstalled.addListener(async (details) => {
   }
 });
 
+// Pre-captured screenshot — taken immediately when the command fires, while activeTab is granted.
+// captureVisibleTab() requires activeTab permission to be freshly granted; the Chrome command
+// path guarantees this. The content script then reads it via 'capture-screenshot' message.
+let pendingScreenshot: string | null = null;
+
 // Handle keyboard commands
 browser.commands.onCommand.addListener(async (command) => {
   if (command === 'trigger-feedback') {
     const tabs = await browser.tabs.query({ active: true, currentWindow: true });
     if (tabs[0]?.id) {
+      // Capture screenshot NOW while activeTab permission is granted by this command invocation.
+      // Store it so the content script can retrieve it after the user clicks an element.
+      try {
+        pendingScreenshot = await browser.tabs.captureVisibleTab(tabs[0].windowId, { format: 'png' });
+        console.log('[MrPlug] Pre-captured screenshot at command time');
+      } catch (err) {
+        console.warn('[MrPlug] Pre-capture failed:', err);
+        pendingScreenshot = null;
+      }
+
       await browser.tabs.sendMessage(tabs[0].id, {
         type: 'toggle-feedback',
       });
@@ -176,22 +191,30 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
       }
       return { success: false, error: 'No tab ID provided' };
 
-    case 'capture-screenshot':
-      // Capture screenshot of active tab
+    case 'capture-screenshot': {
+      // Return pre-captured screenshot (taken when command fired with activeTab grant)
+      if (pendingScreenshot) {
+        const dataUrl = pendingScreenshot;
+        pendingScreenshot = null; // consume — one screenshot per activation
+        console.log('[MrPlug] Returning pre-captured screenshot');
+        return { success: true, dataUrl };
+      }
+
+      // Fallback: try live capture (works if host permissions cover the current tab URL)
       try {
         const tabs = await browser.tabs.query({ active: true, currentWindow: true });
-        if (tabs[0]?.id) {
-          const dataUrl = await browser.tabs.captureVisibleTab(undefined, {
-            format: 'png',
-          });
-          return { success: true, dataUrl };
+        if (!tabs[0]) {
+          return { success: false, error: 'No active tab' };
         }
-        return { success: false, error: 'No active tab' };
+        const dataUrl = await browser.tabs.captureVisibleTab(tabs[0].windowId, { format: 'png' });
+        if (!dataUrl) {
+          return { success: false, error: 'captureVisibleTab returned empty result' };
+        }
+        return { success: true, dataUrl };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error('[MrPlug] Failed to capture screenshot:', errorMessage);
 
-        // Check if it's a rate limit error
         if (errorMessage.includes('MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND')) {
           console.warn('[MrPlug] Screenshot rate limit exceeded - client should retry');
           return { success: false, error: 'rate_limit_exceeded' };
@@ -199,6 +222,7 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
 
         return { success: false, error: errorMessage };
       }
+    }
 
     case 'ai-request': {
       const config = await Storage.getConfig();

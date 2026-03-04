@@ -30,6 +30,9 @@ class MrPlugContent {
   private currentSessionId: string | null = null;
   private lastScreenshotTime: number = 0;
   private screenshotRateLimit: number = 600; // 600ms between captures to stay under 2/sec limit
+  // Debounce: when keydown handler fires Cmd+Shift+F, we set this timestamp so the
+  // subsequent 'toggle-feedback' message from the background command path doesn't double-toggle.
+  private keydownActivatedAt: number = 0;
   private dismissedPageModal: {
     modal: HTMLElement;
     backdrop: HTMLElement | null;
@@ -152,12 +155,15 @@ class MrPlugContent {
         return;
       }
 
-      // Cmd+Shift+F — toggle cursor mode (handled here, not via extension command,
-      // because Chrome intercepts Command shortcuts before the extension system sees them)
+      // Cmd+Shift+F — toggle cursor mode.
+      // Both the content script keydown handler AND Chrome's extension command system
+      // fire for this shortcut. We record when we handled it so the subsequent
+      // 'toggle-feedback' message from the command path doesn't double-toggle.
       if (e.metaKey && e.shiftKey && e.key === 'f') {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
+        this.keydownActivatedAt = Date.now();
         this.toggleActive();
         return;
       }
@@ -216,6 +222,13 @@ class MrPlugContent {
     browser.runtime.onMessage.addListener((message: any) => {
       console.log('[MrPlug] Received message:', message);
       if (message.type === 'toggle-feedback') {
+        // If the content script keydown handler fired within the last 300ms, skip this
+        // message — it's the duplicate from the Chrome extension command path.
+        const msSinceKeydown = Date.now() - this.keydownActivatedAt;
+        if (msSinceKeydown < 300) {
+          console.log('[MrPlug] Ignoring duplicate toggle-feedback (keydown already handled it)');
+          return Promise.resolve({ success: true });
+        }
         console.log('[MrPlug] Toggling feedback mode, current isActive:', this.isActive);
         this.toggleActive();
         return Promise.resolve({ success: true });
