@@ -265,6 +265,11 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
       }
     }
 
+    case 'ping':
+      // Keepalive — content script sends this on activate() to wake the service worker
+      // before the user clicks an element, so captureVisibleTab is ready immediately
+      return { pong: true };
+
     default:
       console.warn('[MrPlug] Unknown message type:', message.type);
       return { error: 'Unknown message type' };

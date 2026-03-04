@@ -152,6 +152,16 @@ class MrPlugContent {
         return;
       }
 
+      // Cmd+Shift+F — toggle cursor mode (handled here, not via extension command,
+      // because Chrome intercepts Command shortcuts before the extension system sees them)
+      if (e.metaKey && e.shiftKey && e.key === 'f') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        this.toggleActive();
+        return;
+      }
+
       // Escape or X — exit cursor mode
       if ((e.key === 'Escape' || e.key === 'x' || e.key === 'X') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         if (this.isActive && !this.modalOpen) {
@@ -231,6 +241,8 @@ class MrPlugContent {
     this.isActive = true;
     document.body.classList.add('mrplug-active-mode');
     this.showHint();
+    // Wake the MV3 service worker now so captureVisibleTab is ready when the user clicks
+    browser.runtime.sendMessage({ type: 'ping' }).catch(() => {});
   }
 
   private deactivate() {
@@ -481,7 +493,7 @@ class MrPlugContent {
         setTimeout(() => {
           console.warn('[MrPlug] Screenshot capture timed out');
           resolve({ success: false, error: 'timeout' });
-        }, 3000); // 3 second timeout
+        }, 8000); // 8s — covers MV3 service worker cold-start (3-5s)
       });
 
       const response = await Promise.race([screenshotPromise, timeoutPromise]);
