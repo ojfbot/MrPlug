@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import browser from 'webextension-polyfill';
 import {
   Modal,
   TextArea,
@@ -54,18 +55,20 @@ export function FeedbackModal({
   const [config, setConfig] = useState<ExtensionConfig | null>(null);
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
 
+  // Helper to create simple status messages
+  const createStatusMessage = (content: string): ConversationMessage => ({
+    id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    role: 'system',
+    content,
+    timestamp: Date.now(),
+  });
+
   const handleActionClick = async (action: AIResponse['suggestedActions'][0]) => {
     console.log('[MrPlug] Action clicked:', action);
 
     switch (action.type) {
       case 'github-issue':
-        // TODO: Create GitHub issue
-        alert(`Create GitHub Issue:\n\nTitle: ${action.title}\n\nDescription: ${action.description}\n\nPriority: ${action.priority}`);
-        break;
-
-      case 'claude-code':
-        // TODO: Send to Claude Code
-        alert(`Send to Claude Code:\n\n${action.title}\n\n${action.description}`);
+        await handleGitHubIssue(action);
         break;
 
       case 'manual':
@@ -75,6 +78,70 @@ export function FeedbackModal({
 
       default:
         console.warn('[MrPlug] Unknown action type:', action.type);
+    }
+  };
+
+  const handleGitHubIssue = async (action: AIResponse['suggestedActions'][0]) => {
+    if (!config?.githubToken || !config?.githubRepo) {
+      const proceed = confirm(
+        'GitHub integration not configured.\n\n' +
+        'To create issues automatically, add your GitHub token and repo in settings.\n\n' +
+        'Open settings now?'
+      );
+      if (proceed) {
+        await browser.runtime.sendMessage({ type: 'open-settings' });
+      }
+      return;
+    }
+
+    try {
+      // Add progress message
+      const progressMsg = createStatusMessage('🐙 Creating GitHub issue...');
+      setConversationHistory((prev) => [...prev, progressMsg]);
+
+      // Prepare issue body
+      const issueBody = `${action.description}\n\n` +
+        `**Priority**: ${action.priority}\n\n` +
+        `**Element**: ${elementContext?.tagName || 'Unknown'}\n` +
+        `**Page**: ${window.location.href}\n\n` +
+        `---\n` +
+        `*Created via MrPlug browser extension*`;
+
+      // Create issue via GitHub API
+      const response = await fetch(`https://api.github.com/repos/${config.githubRepo}/issues`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `token ${config.githubToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: action.title,
+          body: issueBody,
+          labels: ['mrplug', `priority-${action.priority}`],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`GitHub API responded with ${response.status}`);
+      }
+
+      const issue = await response.json();
+
+      // Add success message
+      const successMsg = createStatusMessage(
+        `✅ GitHub issue created: #${issue.number} - ${issue.html_url}`
+      );
+      setConversationHistory((prev) =>
+        prev.filter((m) => m.id !== progressMsg.id).concat(successMsg)
+      );
+
+      console.log('[MrPlug] GitHub issue created:', issue.html_url);
+    } catch (error) {
+      console.error('[MrPlug] Failed to create GitHub issue:', error);
+      const errorMsg = createStatusMessage(
+        `❌ Failed to create issue: ${error instanceof Error ? error.message : String(error)}`
+      );
+      setConversationHistory((prev) => [...prev, errorMsg]);
     }
   };
 
@@ -120,7 +187,9 @@ export function FeedbackModal({
   // Load config when modal opens
   useEffect(() => {
     if (isOpen) {
-      Storage.getConfig().then(setConfig);
+      Storage.getConfig().then((cfg) => {
+        setConfig(cfg);
+      });
       loadSessions();
     }
   }, [isOpen]); // loadSessions is stable (empty deps), no need to include
@@ -274,11 +343,9 @@ export function FeedbackModal({
         // Carbon TextArea ref points to wrapper, need to find actual textarea
         const textarea = textAreaRef.current?.querySelector('textarea') as HTMLTextAreaElement;
         if (textarea) {
-          console.log('[MrPlug] Focusing textarea element');
           textarea.focus();
-        } else {
-          console.warn('[MrPlug] Could not find textarea element to focus');
         }
+        // Silently ignore if textarea not ready yet
       }, 150);
     }
   }, [isOpen, viewingContext, loading]);
@@ -375,7 +442,7 @@ export function FeedbackModal({
     <Modal
       open={isOpen}
       onRequestClose={onClose}
-      modalHeading="Feedback Assistant"
+      modalHeading={elementContext ? `<${elementContext.tagName.toLowerCase()}>${elementContext.id ? `#${elementContext.id}` : ''}` : 'MrPlug'}
       primaryButtonText="Send"
       secondaryButtonText="Close"
       onRequestSubmit={handleSubmit}
@@ -650,15 +717,32 @@ export function FeedbackModal({
                 </div>
               ) : (
                 conversationHistory.map((msg) => (
-                  <div key={msg.id} style={{ marginBottom: '0.75rem' }}>
-                    <Tag type={msg.role === 'user' ? 'blue' : 'green'} size="sm">
-                      {msg.role}
-                    </Tag>
+                  <div
+                    key={msg.id}
+                    style={{
+                      marginBottom: '0.75rem',
+                      padding: '0.75rem',
+                      background: msg.role === 'user' ? 'var(--cds-layer-02)' : 'var(--cds-layer-01)',
+                      borderRadius: '4px',
+                      border: '1px solid var(--cds-border-subtle)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                      <Tag
+                        type={msg.role === 'user' ? 'blue' : msg.role === 'assistant' ? 'green' : 'gray'}
+                        size="sm"
+                      >
+                        {msg.role === 'system' ? 'status' : msg.role}
+                      </Tag>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--cds-text-secondary)' }}>
+                        {new Date(msg.timestamp).toLocaleTimeString()}
+                      </span>
+                    </div>
                     <div style={{
-                      marginTop: '0.25rem',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
                       fontSize: '0.875rem',
                       color: 'var(--cds-text-primary)',
-                      lineHeight: '1.4',
                     }}>
                       {msg.content}
                     </div>

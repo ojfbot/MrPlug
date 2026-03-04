@@ -5,7 +5,6 @@ import { ElementOverlay } from '../components/ElementOverlay';
 import { ElementCapture } from '../lib/element-capture';
 import { ElementHash } from '../lib/element-hash';
 import { Storage } from '../lib/storage';
-import { AIAgent } from '../lib/ai-agent';
 import { GitHubIntegration } from '../lib/github-integration';
 import { ClaudeIntegration } from '../lib/claude-integration';
 import { ThemeManager } from '../lib/theme';
@@ -23,7 +22,6 @@ class MrPlugContent {
   private selectedElement: Element | null = null;
   private selectedContext: ElementContext | null = null;
   private modalOpen = false;
-  private aiAgent: AIAgent | null = null;
   private githubIntegration: GitHubIntegration | null = null;
   private claudeIntegration: ClaudeIntegration | null = null;
   private elementScreenshot: string | null = null;
@@ -32,6 +30,9 @@ class MrPlugContent {
   private currentSessionId: string | null = null;
   private lastScreenshotTime: number = 0;
   private screenshotRateLimit: number = 600; // 600ms between captures to stay under 2/sec limit
+  // Debounce: when keydown handler fires Cmd+Shift+F, we set this timestamp so the
+  // subsequent 'toggle-feedback' message from the background command path doesn't double-toggle.
+  private keydownActivatedAt: number = 0;
   private dismissedPageModal: {
     modal: HTMLElement;
     backdrop: HTMLElement | null;
@@ -64,19 +65,8 @@ class MrPlugContent {
     // Apply theme to both document and mrplug-root
     const applyThemeToRoot = async () => {
       const theme = await ThemeManager.getTheme();
-      console.log('[MrPlug] Applying theme to root:', theme);
-
-      // Apply to page document
+      // Apply to page document only — mrplug-root always uses cds--g100 (Frame dark)
       ThemeManager.applyTheme(theme);
-
-      // Also apply to mrplug-root
-      if (this.root) {
-        if (theme === 'auto') {
-          this.root.removeAttribute('data-theme');
-        } else {
-          this.root.setAttribute('data-theme', theme);
-        }
-      }
     };
 
     // Initial sync
@@ -102,28 +92,9 @@ class MrPlugContent {
   private async loadConfig() {
     const config = await Storage.getConfig();
 
-    console.log('[MrPlug] Loading config:', {
-      llmProvider: config.llmProvider,
-      hasOpenAIKey: !!config.openaiApiKey,
-      hasAnthropicKey: !!config.anthropicApiKey,
-      openaiKeyPrefix: config.openaiApiKey?.substring(0, 7),
-      anthropicKeyPrefix: config.anthropicApiKey?.substring(0, 10),
-    });
+    console.log('[MrPlug] Loading config (AI handled by background worker)');
 
-    // Initialize AI agent based on provider
-    if (config.llmProvider === 'openai' && config.openaiApiKey) {
-      console.log('[MrPlug] Initializing OpenAI agent');
-      this.aiAgent = new AIAgent(config.openaiApiKey);
-    } else if (config.llmProvider === 'anthropic' && config.anthropicApiKey) {
-      console.log('[MrPlug] Initializing Anthropic agent');
-      this.aiAgent = new AIAgent(config.anthropicApiKey);
-    } else if (config.openaiApiKey) {
-      // Fallback for existing configs without llmProvider set
-      console.log('[MrPlug] Initializing agent with OpenAI fallback');
-      this.aiAgent = new AIAgent(config.openaiApiKey);
-    } else {
-      console.warn('[MrPlug] No AI agent configured - AI analysis will not be available');
-    }
+    // AI agent now lives in background worker — no instantiation in content script
 
     if (config.githubToken && config.githubRepo) {
       this.githubIntegration = new GitHubIntegration(
@@ -138,6 +109,8 @@ class MrPlugContent {
   private injectUI() {
     this.root = document.createElement('div');
     this.root.id = 'mrplug-root';
+    // Always Frame dark — MrPlug is a Frame OS surface, not a host-page widget
+    this.root.classList.add('cds--g100');
     document.body.appendChild(this.root);
 
     this.reactRoot = createRoot(this.root);
@@ -182,10 +155,22 @@ class MrPlugContent {
         return;
       }
 
-      // X key to exit feedback mode (only when in feedback mode, not when modal is open)
-      if ((e.key === 'x' || e.key === 'X') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // Cmd+Shift+F — toggle cursor mode.
+      // Both the content script keydown handler AND Chrome's extension command system
+      // fire for this shortcut. We record when we handled it so the subsequent
+      // 'toggle-feedback' message from the command path doesn't double-toggle.
+      if (e.metaKey && e.shiftKey && e.key === 'f') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        this.keydownActivatedAt = Date.now();
+        this.toggleActive();
+        return;
+      }
+
+      // Escape or X — exit cursor mode
+      if ((e.key === 'Escape' || e.key === 'x' || e.key === 'X') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         if (this.isActive && !this.modalOpen) {
-          console.log('[MrPlug] X key detected - exiting feedback mode');
           e.preventDefault();
           e.stopPropagation();
           e.stopImmediatePropagation();
@@ -237,6 +222,13 @@ class MrPlugContent {
     browser.runtime.onMessage.addListener((message: any) => {
       console.log('[MrPlug] Received message:', message);
       if (message.type === 'toggle-feedback') {
+        // If the content script keydown handler fired within the last 300ms, skip this
+        // message — it's the duplicate from the Chrome extension command path.
+        const msSinceKeydown = Date.now() - this.keydownActivatedAt;
+        if (msSinceKeydown < 300) {
+          console.log('[MrPlug] Ignoring duplicate toggle-feedback (keydown already handled it)');
+          return Promise.resolve({ success: true });
+        }
         console.log('[MrPlug] Toggling feedback mode, current isActive:', this.isActive);
         this.toggleActive();
         return Promise.resolve({ success: true });
@@ -262,6 +254,8 @@ class MrPlugContent {
     this.isActive = true;
     document.body.classList.add('mrplug-active-mode');
     this.showHint();
+    // Wake the MV3 service worker now so captureVisibleTab is ready when the user clicks
+    browser.runtime.sendMessage({ type: 'ping' }).catch(() => {});
   }
 
   private deactivate() {
@@ -281,29 +275,17 @@ class MrPlugContent {
   }
 
   private showHint() {
-    // Remove any existing hints first
     this.hideHint();
 
     const hint = document.createElement('div');
     hint.className = 'mrplug-hint';
-
-    // Different message based on activation method
-    const message = this.activatedByFnKey
-      ? 'Click any element to provide feedback • Release fn-F1 or press X to exit'
-      : 'Click any element to provide feedback • Press X to exit';
-
-    hint.innerHTML = `
-      ${message}
-      <button class="mrplug-hint-close">×</button>
-    `;
+    hint.innerHTML = `Click any element to inspect &nbsp;·&nbsp; <kbd style="font-family:inherit;font-size:11px;background:var(--ojf-surface-3,#222);border:1px solid var(--ojf-border,#2a2a2a);border-radius:2px;padding:1px 5px;color:var(--ojf-text-secondary,#a0a0a0)">⌘⇧F</kbd> or <kbd style="font-family:inherit;font-size:11px;background:var(--ojf-surface-3,#222);border:1px solid var(--ojf-border,#2a2a2a);border-radius:2px;padding:1px 5px;color:var(--ojf-text-secondary,#a0a0a0)">Esc</kbd> to exit<button class="mrplug-hint-close" title="Exit MrPlug">×</button>`;
 
     hint.querySelector('.mrplug-hint-close')?.addEventListener('click', () => {
       this.deactivate();
     });
 
     document.body.appendChild(hint);
-
-    setTimeout(() => hint.remove(), 5000);
   }
 
   private hideHint() {
@@ -524,7 +506,7 @@ class MrPlugContent {
         setTimeout(() => {
           console.warn('[MrPlug] Screenshot capture timed out');
           resolve({ success: false, error: 'timeout' });
-        }, 3000); // 3 second timeout
+        }, 8000); // 8s — covers MV3 service worker cold-start (3-5s)
       });
 
       const response = await Promise.race([screenshotPromise, timeoutPromise]);
@@ -667,91 +649,28 @@ class MrPlugContent {
 
     await Storage.saveFeedbackRequest(request);
 
-    // Try to get AI analysis if configured, but don't fail if not
-    let response: AIResponse | undefined;
+    // AI call delegated to background worker — no AI SDK in content script
+    let response: AIResponse = await browser.runtime.sendMessage({
+      type: 'ai-request',
+      elementContext: this.selectedContext,
+      userInput: feedback,
+      conversationHistory,
+      agentMode,
+      sessionId,
+    }) as AIResponse;
 
-    // If agent not initialized, try to reload config
-    if (!this.aiAgent) {
-      console.warn('[MrPlug] AI agent not initialized - attempting to reload config...');
-      await this.loadConfig();
-    }
-
-    if (this.aiAgent) {
-      console.log('[MrPlug] AI agent is initialized, calling analyzeFeedback...');
+    if (response?.analysis) {
       try {
-        response = await this.aiAgent.analyzeFeedback(
-          feedback,
-          this.selectedContext,
-          conversationHistory,
-          agentMode
-        );
-        console.log('[MrPlug] AI analysis received:', response);
-
-        if (response) {
-          // Add assistant response to session with error handling
-          try {
-            await Storage.addMessageToSession(sessionId, {
-              id: Storage.generateUUID(),
-              role: 'assistant',
-              content: response.analysis,
-              timestamp: Date.now(),
-            });
-
-            // Auto-generate summary if needed
-            await SessionSummary.autoGenerateSummary(sessionId, this.aiAgent);
-          } catch (error) {
-            console.error('[MrPlug] Failed to save assistant message to session:', error);
-            // Don't throw - this is not critical, user already has the response
-          }
-        }
-      } catch (error) {
-        console.error('[MrPlug] AI analysis failed:', error);
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error('[MrPlug] Error details:', {
-          name: error instanceof Error ? error.name : 'Unknown',
-          message: errorMessage,
-          stack: error instanceof Error ? error.stack : undefined,
+        await Storage.addMessageToSession(sessionId, {
+          id: Storage.generateUUID(),
+          role: 'assistant',
+          content: response.analysis,
+          timestamp: Date.now(),
         });
-
-        // Surface error to user with actionable message
-        let userMessage = 'AI analysis failed. ';
-        if (errorMessage.includes('API key')) {
-          userMessage += 'Please check your API key in Settings.';
-        } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
-          userMessage += 'Please check your internet connection and try again.';
-        } else if (errorMessage.includes('rate limit')) {
-          userMessage += 'API rate limit reached. Please wait a moment and try again.';
-        } else {
-          userMessage += 'Please try again or check the console for details.';
-        }
-
-        response = {
-          analysis: userMessage,
-          suggestedActions: [{
-            type: 'manual',
-            title: 'Check Settings',
-            description: 'Verify your API configuration in the extension settings',
-            priority: 'high',
-          }],
-          requiresCodeChange: false,
-          confidence: 0,
-        };
+        await SessionSummary.autoGenerateSummary(sessionId, null);
+      } catch (error) {
+        console.error('[MrPlug] Failed to save assistant message to session:', error);
       }
-    } else {
-      console.error('[MrPlug] AI agent still not initialized after reload - AI analysis unavailable');
-
-      // User-friendly message for configuration issues
-      response = {
-        analysis: 'AI agent is not configured. Please configure your AI provider (OpenAI or Anthropic) in the extension settings to enable AI analysis.',
-        suggestedActions: [{
-          type: 'manual',
-          title: 'Open Settings',
-          description: 'Click the MrPlug icon and select Settings to configure your API key',
-          priority: 'high',
-        }],
-        requiresCodeChange: false,
-        confidence: 0,
-      };
     }
 
     // Capture complete context for Claude Code integration (works with or without AI)

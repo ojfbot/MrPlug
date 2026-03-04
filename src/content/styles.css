@@ -116,54 +116,62 @@
   cursor: crosshair !important;
 }
 
-/* Floating activation hint */
+/* Cursor-mode indicator — fixed top bar, Frame dark surface */
 .mrplug-hint,
 .mrplug-activation-hint {
   position: fixed;
-  bottom: 20px;
-  right: 20px;
-  background: #0f62fe;
-  color: white;
-  padding: 12px 16px;
-  border-radius: 4px;
-  font-size: 14px;
-  z-index: 999998;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  background: var(--ojf-surface-1, #111111);
+  border-bottom: 1px solid var(--ojf-accent, #7c6af7);
+  color: var(--ojf-text-secondary, #a0a0a0);
+  padding: 0 16px;
+  font-size: 12px;
+  letter-spacing: 0.16px;
+  z-index: 2147483646;
   font-family: 'IBM Plex Sans', sans-serif;
-  animation: mrplug-fade-in 0.3s ease;
+  animation: mrplug-slide-down 120ms var(--ojf-ease, cubic-bezier(0.16, 1, 0.3, 1));
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  pointer-events: auto;
 }
 
-.mrplug-activation-hint {
-  background: #24a148;
+/* Accent pill — "MrPlug" wordmark */
+.mrplug-hint::before {
+  content: 'MrPlug';
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: var(--ojf-accent-subtle, rgba(124, 106, 247, 0.12));
+  color: var(--ojf-accent, #7c6af7);
+  border-radius: 2px;
   font-weight: 600;
-  pointer-events: auto;
+  font-size: 11px;
+  letter-spacing: 0.32px;
+  text-transform: uppercase;
+  margin-right: 4px;
 }
 
-.mrplug-activation-hint button {
-  pointer-events: auto;
-}
-
-@keyframes mrplug-fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+@keyframes mrplug-slide-down {
+  from { opacity: 0; transform: translateY(-100%); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .mrplug-hint-close {
-  margin-left: 12px;
+  margin-left: auto;
   background: none;
   border: none;
-  color: white;
+  color: var(--ojf-text-muted, #6f6f6f);
   cursor: pointer;
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
-  padding: 0;
+  padding: 4px;
+  transition: color 110ms;
+}
+
+.mrplug-hint-close:hover {
+  color: var(--ojf-text-secondary, #a0a0a0);
 }

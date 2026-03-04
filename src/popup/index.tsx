@@ -90,9 +90,11 @@ function Popup() {
         return;
       }
 
-      // Check if we're on a localhost page
-      if (!tab.url?.includes('localhost') && !tab.url?.includes('127.0.0.1')) {
-        alert('MrPlug only works on localhost development sites.\n\nPlease navigate to http://localhost:* or http://127.0.0.1:*');
+      // Check if we're on a supported page
+      const url = tab.url || '';
+      const isSupported = url.includes('localhost') || url.includes('127.0.0.1') || url.includes('.jim.software');
+      if (!isSupported) {
+        alert('MrPlug works on localhost and *.jim.software pages.\n\nNavigate to one of those and try again.');
         return;
       }
 
@@ -134,7 +136,7 @@ function Popup() {
   };
 
   const openKeyboardHelp = () => {
-    alert('MrPlug Keyboard Shortcuts:\n\n• fn-F1 + click: Select element for feedback\n• X: Exit feedback mode\n\nWorks on localhost and 127.0.0.1 pages only.');
+    alert('MrPlug Keyboard Shortcuts:\n\n• Cmd+Shift+F: Toggle cursor mode\n• Click any element: Open inspector\n• Esc or X: Exit cursor mode\n\nWorks on localhost and *.jim.software pages.');
   };
 
   if (loading) {

@@ -26,9 +26,15 @@ export interface FeedbackRequest {
 
 export interface ConversationMessage {
   id: string; // UUID for stable React keys
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
+  isStreaming?: boolean;
+  metadata?: {
+    source?: 'mcp' | 'local' | 'extension';
+    mcpActivity?: string;
+    toolCalls?: string[];
+  };
 }
 
 export interface AIResponse {
@@ -124,6 +130,15 @@ export interface ExtensionConfig {
   githubToken?: string;
   githubRepo?: string;
   claudeCodeEnabled: boolean;
+
+  // Frame OS dev routing — when set, AI calls route through frame-agent instead of direct API
+  // Dev mode only: set to 'http://localhost:4001' in env.json builds; leave unset for production
+  frameAgentUrl?: string;
+
+  // MCP Server settings
+  mcpEnabled?: boolean;
+  mcpServerUrl?: string;
+  mcpWsUrl?: string;
 
   // General settings
   autoScreenshot: boolean;

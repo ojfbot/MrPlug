@@ -42,7 +42,33 @@ function Options() {
         data: config,
       });
       setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+
+      // Check if there's a referring tab to return to
+      const result = await browser.storage.local.get('mrplug_referring_tab');
+      const referringTabId = result.mrplug_referring_tab as number | undefined;
+
+      if (referringTabId && typeof referringTabId === 'number') {
+        // Clean up stored tab ID
+        await browser.storage.local.remove('mrplug_referring_tab');
+
+        // Switch back to referring tab
+        try {
+          await browser.tabs.update(referringTabId, { active: true });
+          // Close settings tab after a short delay
+          setTimeout(async () => {
+            const currentTab = await browser.tabs.getCurrent();
+            if (currentTab?.id) {
+              await browser.tabs.remove(currentTab.id);
+            }
+          }, 500);
+        } catch (tabError) {
+          // Tab might have been closed, just show success message
+          setTimeout(() => setSaved(false), 3000);
+        }
+      } else {
+        // No referring tab, just show success message
+        setTimeout(() => setSaved(false), 3000);
+      }
     } catch (err) {
       setError('Failed to save configuration');
     }
@@ -211,34 +237,6 @@ function Options() {
 
         <div className="options-panel">
           <div className="section">
-            <h2>Claude Code Integration</h2>
-            <p style={{ color: 'var(--cds-text-secondary)' }}>
-              Enable direct integration with Claude Code for automatic code fixes.
-            </p>
-
-            <label className="cds-toggle">
-              <input
-                type="checkbox"
-                checked={config.claudeCodeEnabled}
-                onChange={(e) => updateConfig('claudeCodeEnabled', e.target.checked)}
-              />
-              <span className="cds-toggle__switch"></span>
-              <span className="cds-toggle__label">Enable Claude Code integration</span>
-            </label>
-
-            <div className="cds-notification cds-notification--info" style={{ marginTop: 'calc(var(--cds-spacing-07) * 1.5)' }}>
-              <div>
-                <div className="cds-notification__title">How it works</div>
-                <div className="cds-notification__subtitle">
-                  When enabled, MrPlug will send fix commands to Claude Code via localStorage. Make sure Claude Code is running and monitoring for commands.
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="options-panel">
-          <div className="section">
             <h2>General Settings</h2>
 
             <div className="cds-form-item">
@@ -279,20 +277,6 @@ function Options() {
                 <span className="cds-toggle__switch"></span>
                 <span className="cds-toggle__label">Automatically capture element screenshots</span>
               </label>
-            </div>
-
-            <div className="cds-form-item">
-              <label htmlFor="local-app-path" className="cds-label">Local App Path</label>
-              <input
-                id="local-app-path"
-                type="text"
-                placeholder="/Users/username/projects/myapp"
-                value={config.localAppPath || ''}
-                onChange={(e) => updateConfig('localAppPath', e.target.value)}
-              />
-              <div className="cds-helper-text">
-                Path to your local application directory (used for Claude Code integration)
-              </div>
             </div>
 
             <div className="cds-form-item">
