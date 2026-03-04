@@ -131,6 +131,10 @@ export interface ExtensionConfig {
   githubRepo?: string;
   claudeCodeEnabled: boolean;
 
+  // Frame OS dev routing — when set, AI calls route through frame-agent instead of direct API
+  // Dev mode only: set to 'http://localhost:4001' in env.json builds; leave unset for production
+  frameAgentUrl?: string;
+
   // MCP Server settings
   mcpEnabled?: boolean;
   mcpServerUrl?: string;

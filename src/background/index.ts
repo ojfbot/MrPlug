@@ -21,6 +21,7 @@ console.log('[MrPlug] Background service worker started');
       await Storage.setConfig({
         llmProvider: ENV_CONFIG.DEFAULT_PROVIDER as 'anthropic' | 'openai',
         anthropicApiKey: ENV_CONFIG.ANTHROPIC_API_KEY,
+        frameAgentUrl: 'http://localhost:4001', // Dev mode: route AI through frame-agent
         claudeCodeEnabled: false,
         autoScreenshot: true,
         keyboardShortcut: 'Alt+Shift+F',
@@ -54,6 +55,7 @@ browser.runtime.onInstalled.addListener(async (details) => {
       await Storage.setConfig({
         llmProvider: ENV_CONFIG.DEFAULT_PROVIDER as 'anthropic' | 'openai',
         anthropicApiKey: ENV_CONFIG.ANTHROPIC_API_KEY,
+        frameAgentUrl: 'http://localhost:4001', // Dev mode: route AI through frame-agent
         claudeCodeEnabled: false,
         autoScreenshot: true,
         keyboardShortcut: 'Alt+Shift+F',
@@ -200,6 +202,36 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
 
     case 'ai-request': {
       const config = await Storage.getConfig();
+
+      // Dev mode: route through frame-agent if configured and reachable
+      if (config.frameAgentUrl) {
+        try {
+          console.log('[MrPlug] Routing AI request through frame-agent:', config.frameAgentUrl);
+          const res = await fetch(`${config.frameAgentUrl}/api/inspect`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              elementContext: message.elementContext,
+              userInput: message.userInput,
+              agentMode: message.agentMode || 'ui',
+              conversationHistory: message.conversationHistory || [],
+            }),
+          });
+
+          if (res.ok) {
+            const json = await res.json() as { success: boolean; data: AIResponse };
+            if (json.success) {
+              console.log('[MrPlug] frame-agent response received');
+              return json.data;
+            }
+          }
+          console.warn('[MrPlug] frame-agent returned non-OK status, falling back to direct API');
+        } catch (err) {
+          console.warn('[MrPlug] frame-agent unreachable, falling back to direct API:', err);
+        }
+      }
+
+      // Production / fallback: use own API key
       const apiKey = config.anthropicApiKey || config.openaiApiKey;
 
       if (!apiKey || config.llmProvider === 'none') {
