@@ -108,6 +108,9 @@ browser.runtime.onInstalled.addListener(async (details) => {
 // captureVisibleTab() requires activeTab permission to be freshly granted; the Chrome command
 // path guarantees this. The content script then reads it via 'capture-screenshot' message.
 let pendingScreenshot: string | null = null;
+// Timestamp of pre-capture; stale screenshots (older than content script's 8s timeout) are discarded.
+let pendingScreenshotTime: number = 0;
+const PENDING_SCREENSHOT_MAX_AGE_MS = 10_000;
 
 // Handle keyboard commands
 browser.commands.onCommand.addListener(async (command) => {
@@ -118,10 +121,12 @@ browser.commands.onCommand.addListener(async (command) => {
       // Store it so the content script can retrieve it after the user clicks an element.
       try {
         pendingScreenshot = await browser.tabs.captureVisibleTab(tabs[0].windowId, { format: 'png' });
+        pendingScreenshotTime = Date.now();
         console.log('[MrPlug] Pre-captured screenshot at command time');
       } catch (err) {
         console.warn('[MrPlug] Pre-capture failed:', err);
         pendingScreenshot = null;
+        pendingScreenshotTime = 0;
       }
 
       await browser.tabs.sendMessage(tabs[0].id, {
@@ -193,11 +198,19 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
 
     case 'capture-screenshot': {
       // Return pre-captured screenshot (taken when command fired with activeTab grant)
-      if (pendingScreenshot) {
+      // Discard if stale — content script times out at 8s, so anything older is from a prior session.
+      const age = Date.now() - pendingScreenshotTime;
+      if (pendingScreenshot && age < PENDING_SCREENSHOT_MAX_AGE_MS) {
         const dataUrl = pendingScreenshot;
         pendingScreenshot = null; // consume — one screenshot per activation
+        pendingScreenshotTime = 0;
         console.log('[MrPlug] Returning pre-captured screenshot');
         return { success: true, dataUrl };
+      }
+      if (pendingScreenshot) {
+        console.warn(`[MrPlug] Discarding stale pre-captured screenshot (age: ${age}ms)`);
+        pendingScreenshot = null;
+        pendingScreenshotTime = 0;
       }
 
       // Fallback: try live capture (works if host permissions cover the current tab URL)
