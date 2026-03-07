@@ -1,124 +1,242 @@
 import browser from 'webextension-polyfill';
 import { Storage } from '../lib/storage';
 import { AIAgent } from '../lib/ai-agent';
+import { GitHubIntegration } from '../lib/github-integration';
 import { ENV_CONFIG } from '../lib/env';
-import type { AIResponse } from '../types';
+import type { AIResponse, ProjectMapping, GitHubIssueData } from '../types';
 
 console.log('[MrPlug] Background service worker started');
 
-// Auto-configure on startup if env config exists and no API key is set
+// ─── Default project mappings for Frame OS repos ────────────────────────────
+const DEFAULT_PROJECT_MAPPINGS: ProjectMapping[] = [
+  {
+    hostname: 'cv.jim.software',
+    githubRepo: 'ojfbot/cv-builder',
+    localPath: '/Users/yuri/ojfbot/cv-builder',
+  },
+  {
+    hostname: 'localhost:3000',
+    githubRepo: 'ojfbot/cv-builder',
+    localPath: '/Users/yuri/ojfbot/cv-builder',
+  },
+  {
+    hostname: 'localhost:3001',
+    githubRepo: 'ojfbot/cv-builder',
+    localPath: '/Users/yuri/ojfbot/cv-builder',
+  },
+  {
+    hostname: 'frame.jim.software',
+    githubRepo: 'ojfbot/shell',
+    localPath: '/Users/yuri/ojfbot/shell',
+  },
+  {
+    hostname: 'localhost:4000',
+    githubRepo: 'ojfbot/shell',
+    localPath: '/Users/yuri/ojfbot/shell',
+  },
+  {
+    hostname: 'blog.jim.software',
+    githubRepo: 'ojfbot/blogengine',
+    localPath: '/Users/yuri/ojfbot/blogengine',
+  },
+  {
+    hostname: 'localhost:3005',
+    githubRepo: 'ojfbot/blogengine',
+    localPath: '/Users/yuri/ojfbot/blogengine',
+  },
+  {
+    hostname: 'trips.jim.software',
+    githubRepo: 'ojfbot/tripplanner',
+    localPath: '/Users/yuri/ojfbot/tripplanner',
+  },
+  {
+    hostname: 'localhost:3010',
+    githubRepo: 'ojfbot/tripplanner',
+    localPath: '/Users/yuri/ojfbot/tripplanner',
+  },
+];
+
+/**
+ * Resolve the project mapping for a given page URL.
+ * Matches on host+port, then host-only, then falls back to config.githubRepo.
+ */
+/**
+ * Replace the generic default action injected by ai-agent with a context-aware one:
+ * - Production (*.jim.software) → github-issue
+ * - Local (localhost / 127.0.0.1) → claude-code
+ */
+function injectDefaultAction(response: AIResponse, pageUrl?: string): AIResponse {
+  const isLocal = !pageUrl || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(pageUrl);
+  const desiredType = isLocal ? 'claude-code' : 'github-issue';
+  const oppositeType = isLocal ? 'github-issue' : 'claude-code';
+
+  // Remove any auto-injected opposite action so we don't show both
+  const filtered = response.suggestedActions.filter((a) => a.type !== oppositeType);
+
+  // Ensure the desired action is present (unshift if not already there)
+  if (!filtered.some((a) => a.type === desiredType)) {
+    filtered.unshift({
+      type: desiredType,
+      title: desiredType === 'github-issue' ? 'Create GitHub Issue' : 'Send to Claude Code',
+      description: response.issueTitle || response.analysis.slice(0, 80),
+      priority: 'medium',
+    });
+  }
+
+  return { ...response, suggestedActions: filtered };
+}
+
+function resolveProjectMapping(
+  pageUrl: string,
+  mappings: ProjectMapping[],
+  fallbackRepo?: string,
+  elementContext?: { mfRemoteName?: string; mfRemoteOrigins?: string[] }
+): ProjectMapping | null {
+  // 1. Highest precision: data-mf-remote attribute on the element's ancestor
+  if (elementContext?.mfRemoteName) {
+    const byName = mappings.find(
+      (m) => m.hostname === elementContext.mfRemoteName ||
+             m.githubRepo.endsWith(`/${elementContext.mfRemoteName}`)
+    );
+    if (byName) return byName;
+  }
+
+  // 2. Script-tag origins: match remote entry origin to a project mapping
+  if (elementContext?.mfRemoteOrigins?.length) {
+    for (const origin of elementContext.mfRemoteOrigins) {
+      try {
+        const o = new URL(origin);
+        const originHost = o.port ? `${o.hostname}:${o.port}` : o.hostname;
+        const byOrigin =
+          mappings.find((m) => m.hostname === originHost) ||
+          mappings.find((m) => m.hostname === o.hostname);
+        if (byOrigin) return byOrigin;
+      } catch {
+        // skip
+      }
+    }
+  }
+
+  // 3. Page URL (handles non-MF pages and shell URLs when no remotes detected)
+  try {
+    const url = new URL(pageUrl);
+    const hostWithPort = url.port ? `${url.hostname}:${url.port}` : url.hostname;
+
+    const match =
+      mappings.find((m) => m.hostname === hostWithPort) ||
+      mappings.find((m) => m.hostname === url.hostname);
+
+    if (match) return match;
+
+    if (fallbackRepo) {
+      return { hostname: url.hostname, githubRepo: fallbackRepo };
+    }
+  } catch {
+    // Invalid URL
+  }
+  return null;
+}
+
+// ─── Auto-configure on startup ──────────────────────────────────────────────
 (async () => {
   const hasEnvConfig = ENV_CONFIG && ENV_CONFIG.ANTHROPIC_API_KEY;
 
   if (hasEnvConfig) {
     const currentConfig = await Storage.getConfig();
 
-    // If no API key is configured, auto-configure from env
     if (!currentConfig.anthropicApiKey && !currentConfig.openaiApiKey) {
-      console.log('[MrPlug] 🔄 Auto-configuring from environment on startup');
-      console.log('[MrPlug] 🤖 Provider:', ENV_CONFIG.DEFAULT_PROVIDER);
-
+      console.log('[MrPlug] Auto-configuring from environment on startup');
       await Storage.setConfig({
         llmProvider: ENV_CONFIG.DEFAULT_PROVIDER as 'anthropic' | 'openai',
         anthropicApiKey: ENV_CONFIG.ANTHROPIC_API_KEY,
-        frameAgentUrl: 'http://localhost:4001', // Dev mode: route AI through frame-agent
-        claudeCodeEnabled: false,
+        frameAgentUrl: 'http://localhost:4001',
+        claudeCodeEnabled: true,
+        claudeCodeRelayUrl: 'http://localhost:27182',
         autoScreenshot: true,
         keyboardShortcut: 'Alt+Shift+F',
-        localAppPath: '/Users/yuri/ojfbot/cv-builder', // Default source code path
+        localAppPath: '/Users/yuri/ojfbot/cv-builder',
+        githubRepo: 'ojfbot/cv-builder',
+        projectMappings: DEFAULT_PROJECT_MAPPINGS,
       });
-
-      console.log('[MrPlug] ✅ Extension configured and ready to use!');
-      console.log('[MrPlug] 💡 Press Alt+Shift+F on any localhost page to start');
-    } else {
-      console.log('[MrPlug] 📋 Configuration already exists');
-      console.log('[MrPlug] Provider:', currentConfig.llmProvider);
-      console.log('[MrPlug] Has Anthropic key:', !!currentConfig.anthropicApiKey);
-      console.log('[MrPlug] Has OpenAI key:', !!currentConfig.openaiApiKey);
+      console.log('[MrPlug] Extension configured and ready');
+    } else if (!currentConfig.projectMappings || currentConfig.projectMappings.length === 0) {
+      // Existing install — backfill project mappings
+      await Storage.setConfig({
+        ...currentConfig,
+        projectMappings: DEFAULT_PROJECT_MAPPINGS,
+        claudeCodeEnabled: currentConfig.claudeCodeEnabled ?? true,
+        claudeCodeRelayUrl: currentConfig.claudeCodeRelayUrl ?? 'http://localhost:27182',
+      });
+      console.log('[MrPlug] Backfilled project mappings');
     }
   }
 })();
 
-// Handle installation
+// ─── Installation handler ────────────────────────────────────────────────────
 browser.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === 'install') {
     console.log('[MrPlug] Extension installed');
-
-    // Check for environment config and auto-configure
     const hasEnvConfig = ENV_CONFIG && ENV_CONFIG.ANTHROPIC_API_KEY;
 
     if (hasEnvConfig) {
-      console.log('[MrPlug] 🔑 Auto-configuring with environment API key');
-      console.log('[MrPlug] 🤖 Provider:', ENV_CONFIG.DEFAULT_PROVIDER);
-
-      // Initialize with environment API key
       await Storage.setConfig({
         llmProvider: ENV_CONFIG.DEFAULT_PROVIDER as 'anthropic' | 'openai',
         anthropicApiKey: ENV_CONFIG.ANTHROPIC_API_KEY,
-        frameAgentUrl: 'http://localhost:4001', // Dev mode: route AI through frame-agent
-        claudeCodeEnabled: false,
+        frameAgentUrl: 'http://localhost:4001',
+        claudeCodeEnabled: true,
+        claudeCodeRelayUrl: 'http://localhost:27182',
         autoScreenshot: true,
         keyboardShortcut: 'Alt+Shift+F',
-        localAppPath: '/Users/yuri/ojfbot/cv-builder', // Default source code path
-        githubRepo: 'ojfbot/cv-builder', // Default GitHub repo
+        localAppPath: '/Users/yuri/ojfbot/cv-builder',
+        githubRepo: 'ojfbot/cv-builder',
+        projectMappings: DEFAULT_PROJECT_MAPPINGS,
       });
-
-      console.log('[MrPlug] ✅ Extension configured and ready to use!');
-      console.log('[MrPlug] 💡 Press Alt+Shift+F on any localhost page to start');
+      console.log('[MrPlug] Extension configured from env');
     } else {
-      console.log('[MrPlug] No environment config found - using defaults');
-
-      // Initialize default config
       await Storage.setConfig({
         llmProvider: 'none',
         claudeCodeEnabled: false,
+        claudeCodeRelayUrl: 'http://localhost:27182',
         autoScreenshot: true,
         keyboardShortcut: 'Alt+Shift+F',
-        localAppPath: '/Users/yuri/ojfbot/cv-builder', // Default source code path
-        githubRepo: 'ojfbot/cv-builder', // Default GitHub repo
+        localAppPath: '/Users/yuri/ojfbot/cv-builder',
+        githubRepo: 'ojfbot/cv-builder',
+        projectMappings: DEFAULT_PROJECT_MAPPINGS,
       });
-
-      // Open options page on first install
       browser.runtime.openOptionsPage();
     }
   } else if (details.reason === 'update') {
-    console.log('[MrPlug] Extension updated');
-
-    // Check if we should update with new env config
     const hasEnvConfig = ENV_CONFIG && ENV_CONFIG.ANTHROPIC_API_KEY;
-
     if (hasEnvConfig) {
       const currentConfig = await Storage.getConfig();
+      const updates: Partial<typeof currentConfig> = {};
 
-      // Only update if no API key is currently set
       if (!currentConfig.anthropicApiKey && !currentConfig.openaiApiKey) {
-        console.log('[MrPlug] 🔑 Auto-updating with environment API key');
-        await Storage.setConfig({
-          ...currentConfig,
-          llmProvider: ENV_CONFIG.DEFAULT_PROVIDER as 'anthropic' | 'openai',
-          anthropicApiKey: ENV_CONFIG.ANTHROPIC_API_KEY,
-        });
-        console.log('[MrPlug] ✅ Configuration updated!');
+        updates.llmProvider = ENV_CONFIG.DEFAULT_PROVIDER as 'anthropic' | 'openai';
+        updates.anthropicApiKey = ENV_CONFIG.ANTHROPIC_API_KEY;
+      }
+      if (!currentConfig.projectMappings || currentConfig.projectMappings.length === 0) {
+        updates.projectMappings = DEFAULT_PROJECT_MAPPINGS;
+      }
+      if (!currentConfig.claudeCodeRelayUrl) {
+        updates.claudeCodeRelayUrl = 'http://localhost:27182';
+      }
+      if (Object.keys(updates).length > 0) {
+        await Storage.setConfig({ ...currentConfig, ...updates });
       }
     }
   }
 });
 
-// Pre-captured screenshot — taken immediately when the command fires, while activeTab is granted.
-// captureVisibleTab() requires activeTab permission to be freshly granted; the Chrome command
-// path guarantees this. The content script then reads it via 'capture-screenshot' message.
+// ─── Screenshot pre-capture ──────────────────────────────────────────────────
 let pendingScreenshot: string | null = null;
-// Timestamp of pre-capture; stale screenshots (older than content script's 8s timeout) are discarded.
 let pendingScreenshotTime: number = 0;
 const PENDING_SCREENSHOT_MAX_AGE_MS = 10_000;
 
-// Handle keyboard commands
 browser.commands.onCommand.addListener(async (command) => {
   if (command === 'trigger-feedback') {
     const tabs = await browser.tabs.query({ active: true, currentWindow: true });
     if (tabs[0]?.id) {
-      // Capture screenshot NOW while activeTab permission is granted by this command invocation.
-      // Store it so the content script can retrieve it after the user clicks an element.
       try {
         pendingScreenshot = await browser.tabs.captureVisibleTab(tabs[0].windowId, { format: 'png' });
         pendingScreenshotTime = Date.now();
@@ -129,16 +247,14 @@ browser.commands.onCommand.addListener(async (command) => {
         pendingScreenshotTime = 0;
       }
 
-      await browser.tabs.sendMessage(tabs[0].id, {
-        type: 'toggle-feedback',
-      });
+      await browser.tabs.sendMessage(tabs[0].id, { type: 'toggle-feedback' });
     }
   }
 });
 
-// Handle messages from content scripts and popup
+// ─── Message handler ─────────────────────────────────────────────────────────
 browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
-  console.log('[MrPlug] Received message:', message);
+  console.log('[MrPlug] Received message:', message.type);
 
   switch (message.type) {
     case 'get-config':
@@ -158,36 +274,28 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
     case 'get-recent-feedback':
       return await Storage.getRecentFeedback();
 
-    case 'open-settings':
-      // Open settings page and track referring tab
+    case 'open-settings': {
       const currentTabs = await browser.tabs.query({ active: true, currentWindow: true });
       const referringTabId = currentTabs[0]?.id;
-
       const optionsUrl = browser.runtime.getURL('options.html');
       const existingTabs = await browser.tabs.query({ url: optionsUrl });
 
       if (existingTabs.length > 0 && existingTabs[0].id) {
-        // Settings already open, focus it
         await browser.tabs.update(existingTabs[0].id, { active: true });
       } else {
-        // Open new settings tab
         await browser.tabs.create({ url: optionsUrl });
       }
 
-      // Store referring tab ID for return navigation
       if (referringTabId) {
         await browser.storage.local.set({ mrplug_referring_tab: referringTabId });
       }
-
       return { success: true };
+    }
 
     case 'activate-feedback':
-      // Forward to content script in the specified tab
       if (message.tabId) {
         try {
-          const response = await browser.tabs.sendMessage(message.tabId, {
-            type: 'toggle-feedback',
-          });
+          const response = await browser.tabs.sendMessage(message.tabId, { type: 'toggle-feedback' });
           return response;
         } catch (error) {
           console.error('[MrPlug] Failed to send message to content script:', error);
@@ -197,42 +305,31 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
       return { success: false, error: 'No tab ID provided' };
 
     case 'capture-screenshot': {
-      // Return pre-captured screenshot (taken when command fired with activeTab grant)
-      // Discard if stale — content script times out at 8s, so anything older is from a prior session.
       const age = Date.now() - pendingScreenshotTime;
       if (pendingScreenshot && age < PENDING_SCREENSHOT_MAX_AGE_MS) {
         const dataUrl = pendingScreenshot;
-        pendingScreenshot = null; // consume — one screenshot per activation
+        pendingScreenshot = null;
         pendingScreenshotTime = 0;
-        console.log('[MrPlug] Returning pre-captured screenshot');
         return { success: true, dataUrl };
       }
       if (pendingScreenshot) {
-        console.warn(`[MrPlug] Discarding stale pre-captured screenshot (age: ${age}ms)`);
+        console.warn(`[MrPlug] Discarding stale screenshot (age: ${age}ms)`);
         pendingScreenshot = null;
         pendingScreenshotTime = 0;
       }
 
-      // Fallback: try live capture (works if host permissions cover the current tab URL)
       try {
         const tabs = await browser.tabs.query({ active: true, currentWindow: true });
-        if (!tabs[0]) {
-          return { success: false, error: 'No active tab' };
-        }
+        if (!tabs[0]) return { success: false, error: 'No active tab' };
         const dataUrl = await browser.tabs.captureVisibleTab(tabs[0].windowId, { format: 'png' });
-        if (!dataUrl) {
-          return { success: false, error: 'captureVisibleTab returned empty result' };
-        }
+        if (!dataUrl) return { success: false, error: 'captureVisibleTab returned empty result' };
         return { success: true, dataUrl };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error('[MrPlug] Failed to capture screenshot:', errorMessage);
-
         if (errorMessage.includes('MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND')) {
-          console.warn('[MrPlug] Screenshot rate limit exceeded - client should retry');
           return { success: false, error: 'rate_limit_exceeded' };
         }
-
         return { success: false, error: errorMessage };
       }
     }
@@ -240,10 +337,9 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
     case 'ai-request': {
       const config = await Storage.getConfig();
 
-      // Dev mode: route through frame-agent if configured and reachable
+      // Dev mode: route through frame-agent
       if (config.frameAgentUrl) {
         try {
-          console.log('[MrPlug] Routing AI request through frame-agent:', config.frameAgentUrl);
           const res = await fetch(`${config.frameAgentUrl}/api/inspect`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -258,19 +354,16 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
           if (res.ok) {
             const json = await res.json() as { success: boolean; data: AIResponse };
             if (json.success) {
-              console.log('[MrPlug] frame-agent response received');
-              return json.data;
+              return injectDefaultAction(json.data, message.pageUrl);
             }
           }
-          console.warn('[MrPlug] frame-agent returned non-OK status, falling back to direct API');
+          console.warn('[MrPlug] frame-agent non-OK, falling back to direct API');
         } catch (err) {
           console.warn('[MrPlug] frame-agent unreachable, falling back to direct API:', err);
         }
       }
 
-      // Production / fallback: use own API key
       const apiKey = config.anthropicApiKey || config.openaiApiKey;
-
       if (!apiKey || config.llmProvider === 'none') {
         const notConfigured: AIResponse = {
           analysis: 'AI not configured. Open extension settings and add an API key.',
@@ -283,13 +376,13 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
 
       try {
         const agent = new AIAgent(apiKey);
-        const response = await agent.analyzeFeedback(
+        const aiResponse = await agent.analyzeFeedback(
           message.userInput,
           message.elementContext,
           message.conversationHistory || [],
           message.agentMode || 'ui'
         );
-        return response;
+        return injectDefaultAction(aiResponse, message.pageUrl);
       } catch (err) {
         console.error('[MrPlug] Background AI call failed:', err);
         const failed: AIResponse = {
@@ -302,9 +395,77 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
       }
     }
 
+    case 'create-github-issue': {
+      const config = await Storage.getConfig();
+
+      if (!config.githubToken) {
+        return { success: false, error: 'No GitHub token configured' };
+      }
+
+      // Resolve repo from page URL using project mappings (MF-aware)
+      const mappings = config.projectMappings || DEFAULT_PROJECT_MAPPINGS;
+      const elementCtx = message.elementContext ?? message.issueData?.elementContext;
+      const projectMapping = message.pageUrl
+        ? resolveProjectMapping(message.pageUrl, mappings, config.githubRepo, elementCtx)
+        : null;
+
+      const repoString = projectMapping?.githubRepo || config.githubRepo;
+      if (!repoString) {
+        return { success: false, error: 'No GitHub repo configured for this page' };
+      }
+
+      try {
+        const gh = new GitHubIntegration(config.githubToken, repoString);
+        const issueData: GitHubIssueData = message.issueData;
+        const result = await gh.createIssue(issueData);
+        console.log('[MrPlug] GitHub issue created:', result.url);
+        return { success: true, url: result.url, number: result.number, repo: repoString };
+      } catch (err) {
+        console.error('[MrPlug] GitHub issue creation failed:', err);
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+
+    case 'send-to-claude-code': {
+      const config = await Storage.getConfig();
+      const relayUrl = config.claudeCodeRelayUrl || 'http://localhost:27182';
+
+      try {
+        const res = await fetch(`${relayUrl}/submit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(message.payload),
+        });
+
+        if (res.ok) {
+          console.log('[MrPlug] Payload sent to Claude Code relay');
+          return { success: true };
+        }
+        return { success: false, error: `Relay responded with ${res.status}` };
+      } catch (err) {
+        console.error('[MrPlug] Claude Code relay unreachable:', err);
+        return {
+          success: false,
+          error: 'Claude Code relay not running. Start it with: cd mrplug-mcp-server && pnpm start',
+        };
+      }
+    }
+
+    case 'resolve-project': {
+      // Content script can ask: "what project is this page?"
+      const config = await Storage.getConfig();
+      const mappings = config.projectMappings || DEFAULT_PROJECT_MAPPINGS;
+      const mapping = message.pageUrl
+        ? resolveProjectMapping(message.pageUrl, mappings, config.githubRepo, message.elementContext)
+        : null;
+      return { success: true, mapping };
+    }
+
+    case 'open-settings':
+      await browser.runtime.openOptionsPage();
+      return { success: true };
+
     case 'ping':
-      // Keepalive — content script sends this on activate() to wake the service worker
-      // before the user clicks an element, so captureVisibleTab is ready immediately
       return { pong: true };
 
     default:
@@ -313,29 +474,26 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
   }
 });
 
-// Handle tab updates to log when content script should be injected
+// ─── Tab update logging ──────────────────────────────────────────────────────
 browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.url) {
     try {
       const url = new URL(tab.url);
       if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
         console.log('[MrPlug] Localhost page loaded:', tab.url);
-        console.log('[MrPlug] Content script should be automatically injected by manifest');
-
-        // Try to ping the content script to verify it's loaded
         setTimeout(async () => {
           try {
             const response = await browser.tabs.sendMessage(tabId, { type: 'ping' }) as { loaded?: boolean };
             if (response?.loaded) {
-              console.log('[MrPlug] ✓ Content script is loaded and ready');
+              console.log('[MrPlug] Content script is loaded and ready');
             }
-          } catch (error) {
-            console.warn('[MrPlug] ✗ Content script not responding. User may need to reload the page.');
+          } catch {
+            console.warn('[MrPlug] Content script not responding');
           }
-        }, 1000); // Wait 1 second for content script to initialize
+        }, 1000);
       }
-    } catch (urlError) {
-      // Invalid URL, skip
+    } catch {
+      // Invalid URL
     }
   }
 });
