@@ -77,9 +77,49 @@ export class ElementCapture {
     return styles;
   }
 
+  /**
+   * Walk up from element looking for data-mf-remote attribute.
+   * Shell mount points should carry e.g. <div data-mf-remote="cv-builder" />.
+   */
+  private static detectMFRemoteName(element: Element): string | undefined {
+    let node: Element | null = element;
+    while (node && node !== document.body) {
+      const remote = node.getAttribute('data-mf-remote');
+      if (remote) return remote;
+      node = node.parentElement;
+    }
+    return undefined;
+  }
+
+  /**
+   * Scan <script src> tags for remoteEntry.js to detect which MF remote
+   * origins are loaded on the page.  Returns unique origins, e.g. ["http://localhost:3000"].
+   */
+  private static detectMFRemoteOrigins(): string[] {
+    const origins = new Set<string>();
+    document.querySelectorAll('script[src]').forEach((script) => {
+      const src = (script as HTMLScriptElement).src;
+      if (src && src.includes('remoteEntry')) {
+        try {
+          const { origin } = new URL(src);
+          // Only include if the origin differs from the current page (i.e. it's a remote)
+          if (origin !== window.location.origin) {
+            origins.add(origin);
+          }
+        } catch {
+          // Ignore unparseable URLs
+        }
+      }
+    });
+    return Array.from(origins);
+  }
+
   static async captureElement(element: Element): Promise<ElementContext> {
     const rect = element.getBoundingClientRect();
     const parent = element.parentElement;
+
+    const mfRemoteName = this.detectMFRemoteName(element);
+    const mfRemoteOrigins = this.detectMFRemoteOrigins();
 
     const context: ElementContext = {
       tagName: element.tagName.toLowerCase(),
@@ -94,6 +134,8 @@ export class ElementCapture {
         height: rect.height,
       },
       domPath: this.getDOMPath(element),
+      mfRemoteName: mfRemoteName,
+      mfRemoteOrigins: mfRemoteOrigins.length > 0 ? mfRemoteOrigins : undefined,
     };
 
     if (parent) {
