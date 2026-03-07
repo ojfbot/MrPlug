@@ -2,11 +2,9 @@ import { createRoot } from 'react-dom/client';
 import browser from 'webextension-polyfill';
 import { FeedbackModal } from '../components/FeedbackModal';
 import { ElementOverlay } from '../components/ElementOverlay';
-import { ElementCapture } from '../lib/element-capture';
 import { ElementHash } from '../lib/element-hash';
+import { ElementCapture } from '../lib/element-capture';
 import { Storage } from '../lib/storage';
-import { GitHubIntegration } from '../lib/github-integration';
-import { ClaudeIntegration } from '../lib/claude-integration';
 import { ThemeManager } from '../lib/theme';
 import { SessionSummary } from '../lib/session-summary';
 import type { ElementContext, AIResponse, FeedbackRequest, ChatSession } from '../types';
@@ -22,8 +20,6 @@ class MrPlugContent {
   private selectedElement: Element | null = null;
   private selectedContext: ElementContext | null = null;
   private modalOpen = false;
-  private githubIntegration: GitHubIntegration | null = null;
-  private claudeIntegration: ClaudeIntegration | null = null;
   private elementScreenshot: string | null = null;
   private viewportScreenshot: string | null = null;
   private currentElementHash: string | null = null;
@@ -90,20 +86,9 @@ class MrPlugContent {
   }
 
   private async loadConfig() {
-    const config = await Storage.getConfig();
-
-    console.log('[MrPlug] Loading config (AI handled by background worker)');
-
-    // AI agent now lives in background worker — no instantiation in content script
-
-    if (config.githubToken && config.githubRepo) {
-      this.githubIntegration = new GitHubIntegration(
-        config.githubToken,
-        config.githubRepo
-      );
-    }
-
-    this.claudeIntegration = new ClaudeIntegration(config.claudeCodeEnabled);
+    // Config is read directly by the background worker and FeedbackModal.
+    // No integrations need to be instantiated in the content script.
+    console.log('[MrPlug] Content script initialised — AI, GitHub, and Claude Code handled by background worker');
   }
 
   private injectUI() {
@@ -134,8 +119,6 @@ class MrPlugContent {
             viewportScreenshot={this.viewportScreenshot}
             onClose={() => this.closeModal()}
             onSubmit={(feedback, agentMode) => this.handleFeedbackSubmit(feedback, agentMode)}
-            onCreateIssue={(response) => this.handleCreateIssue(response)}
-            onApplyFix={(response) => this.handleApplyFix(response)}
             onNewSession={() => this.handleNewSession()}
           />
         </>
@@ -205,13 +188,30 @@ class MrPlugContent {
       }
     });
 
-    // Listen for clicks - select element on click
+    // Trigger element selection on mousedown (not click).
+    // Using mousedown matches how browser element inspectors work and is essential
+    // for <button> elements: calling preventDefault() on mousedown suppresses Chrome's
+    // button activation behaviour which would otherwise prevent the click event from
+    // firing at all — making buttons un-selectable with a click-based approach.
+    document.addEventListener('mousedown', (e) => {
+      if (this.isActive && !this.modalOpen) {
+        const target = e.target as Element;
+        if (target && target !== this.root && !this.root?.contains(target)) {
+          e.preventDefault();            // suppress focus change + button activation
+          e.stopPropagation();           // prevent React root from seeing mousedown
+          e.stopImmediatePropagation();  // block any other document-level capture listeners
+          this.handleClick(e).catch((err) => console.error('[MrPlug] handleClick error:', err));
+        }
+      }
+    }, true);
+
+    // Suppress the click that follows mousedown so the button's onClick doesn't fire.
     document.addEventListener('click', (e) => {
       if (this.isActive && !this.modalOpen) {
-        // In active mode - select element
         e.preventDefault();
         e.stopPropagation();
-        this.handleClick(e);
+        e.stopImmediatePropagation();
+        // Selection was already handled in mousedown — don't call handleClick again.
       }
     }, true);
 
@@ -346,7 +346,7 @@ class MrPlugContent {
         session = await Storage.createSession(
           this.currentElementHash,
           title,
-          this.selectedContext
+          this.selectedContext!
         );
         this.currentSessionId = session.id;
       }
@@ -657,6 +657,7 @@ class MrPlugContent {
       conversationHistory,
       agentMode,
       sessionId,
+      pageUrl: window.location.href,
     }) as AIResponse;
 
     if (response?.analysis) {
@@ -710,72 +711,6 @@ class MrPlugContent {
     return response;
   }
 
-  private async handleCreateIssue(response: AIResponse): Promise<void> {
-    if (!this.githubIntegration) {
-      throw new Error('GitHub integration not configured. Please set your GitHub token and repository in the extension options.');
-    }
-
-    if (!this.selectedContext) {
-      throw new Error('No element selected');
-    }
-
-    const primaryAction = response.suggestedActions[0];
-    if (!primaryAction) {
-      throw new Error('No suggested actions available');
-    }
-
-    let screenshot: string | undefined;
-    try {
-      screenshot = await ElementCapture.captureScreenshot(this.selectedElement!);
-    } catch (error) {
-      console.warn('Failed to capture screenshot:', error);
-    }
-
-    const issueData = {
-      title: primaryAction.title,
-      body: `${primaryAction.description}\n\n## AI Analysis\n${response.analysis}\n\n## Element Details\n- Path: \`${this.selectedContext.domPath}\`\n- Tag: \`${this.selectedContext.tagName}\`\n- Classes: \`${this.selectedContext.classList.join(', ')}\`\n- Page: ${window.location.href}`,
-      labels: ['ui-feedback', `priority-${primaryAction.priority}`],
-      screenshot,
-    };
-
-    const issueUrl = await this.githubIntegration.createIssue(issueData);
-    console.log('[MrPlug] Created GitHub issue:', issueUrl);
-
-    // Notify user
-    alert(`GitHub issue created successfully!\n${issueUrl}`);
-  }
-
-  private async handleApplyFix(response: AIResponse): Promise<void> {
-    if (!this.claudeIntegration) {
-      throw new Error('Claude Code integration not enabled');
-    }
-
-    if (!this.selectedContext) {
-      throw new Error('No element selected');
-    }
-
-    const codeAction = response.suggestedActions.find(
-      (action) => action.type === 'claude-code'
-    );
-
-    if (!codeAction) {
-      throw new Error('No code action available');
-    }
-
-    const command = this.claudeIntegration.generateEditInstruction(
-      codeAction.description,
-      this.selectedContext,
-      response.analysis
-    );
-
-    const success = await this.claudeIntegration.sendCommand(command);
-
-    if (success) {
-      alert('Command sent to Claude Code! Check your IDE for the suggested changes.');
-    } else {
-      throw new Error('Failed to send command to Claude Code');
-    }
-  }
 }
 
 // Initialize when DOM is ready - only in valid extension context
