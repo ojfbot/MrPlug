@@ -20,8 +20,6 @@ interface FeedbackModalProps {
   viewportScreenshot: string | null;
   onClose: () => void;
   onSubmit: (feedback: string, agentMode: 'ui' | 'ux') => Promise<AIResponse>;
-  onCreateIssue: (response: AIResponse) => Promise<void>;
-  onApplyFix: (response: AIResponse) => Promise<void>;
   onNewSession: () => void;
 }
 
@@ -71,10 +69,17 @@ export function FeedbackModal({
         await handleGitHubIssue(action);
         break;
 
-      case 'manual':
-        // Show details
-        alert(`Manual Action Required:\n\nTitle: ${action.title}\n\nDescription: ${action.description}\n\nPriority: ${action.priority}`);
+      case 'claude-code':
+        await handleClaudeCode(action);
         break;
+
+      case 'manual': {
+        const errorMsg = createStatusMessage(
+          `Manual action: ${action.title} — ${action.description}`
+        );
+        setConversationHistory((prev) => [...prev, errorMsg]);
+        break;
+      }
 
       default:
         console.warn('[MrPlug] Unknown action type:', action.type);
@@ -82,64 +87,103 @@ export function FeedbackModal({
   };
 
   const handleGitHubIssue = async (action: AIResponse['suggestedActions'][0]) => {
-    if (!config?.githubToken || !config?.githubRepo) {
-      const proceed = confirm(
-        'GitHub integration not configured.\n\n' +
-        'To create issues automatically, add your GitHub token and repo in settings.\n\n' +
-        'Open settings now?'
+    if (!config?.githubToken) {
+      const errorMsg = createStatusMessage(
+        'GitHub token not configured. Open Settings to add your GitHub Personal Access Token.'
       );
-      if (proceed) {
-        await browser.runtime.sendMessage({ type: 'open-settings' });
-      }
+      setConversationHistory((prev) => [...prev, errorMsg]);
+      browser.runtime.sendMessage({ type: 'open-settings' }).catch(() => {});
       return;
     }
 
     try {
-      // Add progress message
-      const progressMsg = createStatusMessage('🐙 Creating GitHub issue...');
+      const progressMsg = createStatusMessage('Creating GitHub issue...');
       setConversationHistory((prev) => [...prev, progressMsg]);
 
-      // Prepare issue body
-      const issueBody = `${action.description}\n\n` +
-        `**Priority**: ${action.priority}\n\n` +
-        `**Element**: ${elementContext?.tagName || 'Unknown'}\n` +
-        `**Page**: ${window.location.href}\n\n` +
-        `---\n` +
-        `*Created via MrPlug browser extension*`;
+      // Build rich issue data from AI response
+      const issueData = {
+        title: response?.issueTitle || action.title,
+        body: response?.issueDescription || action.description,
+        labels: ['mrplug', `priority-${action.priority}`],
+        acceptanceCriteria: response?.acceptanceCriteria,
+        openQuestions: response?.openQuestions,
+        elementContext: elementContext || undefined,
+        pageUrl: window.location.href,
+        elementScreenshot: elementScreenshot || undefined,
+        viewportScreenshot: viewportScreenshot || undefined,
+      };
 
-      // Create issue via GitHub API
-      const response = await fetch(`https://api.github.com/repos/${config.githubRepo}/issues`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `token ${config.githubToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          title: action.title,
-          body: issueBody,
-          labels: ['mrplug', `priority-${action.priority}`],
-        }),
-      });
+      const result = await browser.runtime.sendMessage({
+        type: 'create-github-issue',
+        pageUrl: window.location.href,
+        issueData,
+      }) as { success: boolean; url?: string; number?: number; repo?: string; error?: string };
 
-      if (!response.ok) {
-        throw new Error(`GitHub API responded with ${response.status}`);
+      if (result.success) {
+        const successMsg = createStatusMessage(
+          `GitHub issue #${result.number} created on ${result.repo}: ${result.url}`
+        );
+        setConversationHistory((prev) =>
+          prev.filter((m) => m.id !== progressMsg.id).concat(successMsg)
+        );
+      } else {
+        throw new Error(result.error || 'Unknown error');
       }
-
-      const issue = await response.json();
-
-      // Add success message
-      const successMsg = createStatusMessage(
-        `✅ GitHub issue created: #${issue.number} - ${issue.html_url}`
-      );
-      setConversationHistory((prev) =>
-        prev.filter((m) => m.id !== progressMsg.id).concat(successMsg)
-      );
-
-      console.log('[MrPlug] GitHub issue created:', issue.html_url);
     } catch (error) {
-      console.error('[MrPlug] Failed to create GitHub issue:', error);
       const errorMsg = createStatusMessage(
-        `❌ Failed to create issue: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to create issue: ${error instanceof Error ? error.message : String(error)}`
+      );
+      setConversationHistory((prev) => [...prev, errorMsg]);
+    }
+  };
+
+  const handleClaudeCode = async (action: AIResponse['suggestedActions'][0]) => {
+    try {
+      const progressMsg = createStatusMessage('Sending to Claude Code...');
+      setConversationHistory((prev) => [...prev, progressMsg]);
+
+      const payload = {
+        userComment: conversationHistory.filter((m) => m.role === 'user').slice(-1)[0]?.content || '',
+        timestamp: Date.now(),
+        pageUrl: window.location.href,
+        elementContext,
+        elementScreenshot,
+        aiAnalysis: response
+          ? {
+              summary: response.analysis,
+              suggestedActions: response.suggestedActions,
+              confidence: response.confidence,
+              acceptanceCriteria: response.acceptanceCriteria,
+              openQuestions: response.openQuestions,
+            }
+          : undefined,
+        action: {
+          type: action.type,
+          title: action.title,
+          description: action.description,
+          priority: action.priority,
+        },
+        conversationHistory,
+      };
+
+      const result = await browser.runtime.sendMessage({
+        type: 'send-to-claude-code',
+        payload,
+      }) as { success: boolean; error?: string };
+
+      if (result.success) {
+        const successMsg = createStatusMessage(
+          'Payload sent to Claude Code. Switch to your terminal — the context is ready.'
+        );
+        setConversationHistory((prev) =>
+          prev.filter((m) => m.id !== progressMsg.id).concat(successMsg)
+        );
+      } else {
+        throw new Error(result.error || 'Unknown error');
+      }
+    } catch (error) {
+      const errorMsg = createStatusMessage(
+        `Claude Code relay error: ${error instanceof Error ? error.message : String(error)}`
       );
       setConversationHistory((prev) => [...prev, errorMsg]);
     }

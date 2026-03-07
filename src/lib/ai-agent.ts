@@ -53,47 +53,25 @@ export class AIAgent {
   }
 
   private getSystemPrompt(agentMode: 'ui' | 'ux'): string {
-    if (agentMode === 'ux') {
-      return `You are an expert UX strategist and product manager assistant. Your role is to:
-1. Understand user experience goals and product requirements
-2. Create detailed feature stories and implementation plans
-3. Think holistically about user workflows and product features
-4. Suggest actionable roadmap items that can be implemented via:
-   - GitHub issues for feature requests with detailed acceptance criteria
-   - Implementation plans for complex multi-step features
-   - Product requirement documents (PRDs) for major features
-
-When analyzing feedback:
-- Focus on the user's goal and desired outcome, not just the UI element
-- Think about the complete user journey and workflow
-- Consider edge cases and alternate paths
-- Break down complex features into implementable stories
-- Suggest product improvements and new capabilities
-- Think beyond styling to functional requirements
-
-Your responses should prioritize product thinking and user experience over technical implementation details.`;
-    }
-
-    return `You are an expert UI analyst and frontend developer assistant. Your role is to:
-1. Understand user feedback about UI elements and interactions
-2. Analyze the technical context (DOM structure, styles, positioning)
-3. Suggest actionable solutions that can be implemented via:
-   - GitHub issues for feature requests or complex changes
-   - Direct code changes for simple styling or structural fixes
-   - Manual interventions for design decisions
-
-When analyzing feedback:
-- Be specific about what CSS properties or HTML structure needs to change
-- Identify if it's a styling issue, layout problem, interaction bug, or feature request
-- Prioritize solutions based on complexity and impact
-- Format responses as JSON with the following structure:
+    const baseStructure = `
+Always respond with valid JSON matching this exact structure:
 {{
-  "analysis": "Your detailed analysis of the issue",
+  "analysis": "Your detailed analysis",
+  "issueTitle": "Concise GitHub issue title (under 80 chars)",
+  "issueDescription": "1-3 paragraph description of the problem and proposed solution, written for a developer reading a GitHub issue",
+  "acceptanceCriteria": [
+    "Criteria written as 'Given/When/Then' or 'The user can...' statements",
+    "Each entry is a single verifiable condition"
+  ],
+  "openQuestions": [
+    "Unresolved design or implementation question that needs team input",
+    "Any ambiguity that should be clarified before implementation"
+  ],
   "suggestedActions": [
     {{
       "type": "github-issue" | "claude-code" | "manual",
       "title": "Action title",
-      "description": "Detailed description",
+      "description": "One-line description shown on the action button tooltip",
       "priority": "low" | "medium" | "high",
       "metadata": {{}}
     }}
@@ -101,6 +79,32 @@ When analyzing feedback:
   "requiresCodeChange": true | false,
   "confidence": 0.0-1.0
 }}`;
+
+    if (agentMode === 'ux') {
+      return `You are an expert UX strategist and product manager embedded in a browser extension that inspects live UI. When a developer clicks a UI element and describes a goal, you produce a structured GitHub issue brief.
+
+Your job:
+1. Identify the user experience problem or opportunity from the feedback and element context
+2. Write a clear issue description that frames the WHY (user need) and the WHAT (proposed change)
+3. List concrete, testable acceptance criteria — not vague goals
+4. Surface genuine open questions: design decisions, edge cases, or technical ambiguities that need team alignment
+5. Recommend the right action type (github-issue for features/UX work, claude-code for targeted code fixes)
+
+Think beyond the single element — consider the complete user workflow, mobile vs desktop, empty states, error states, and accessibility.
+${baseStructure}`;
+    }
+
+    return `You are an expert UI analyst and frontend developer assistant embedded in a browser extension that inspects live DOM elements. When a developer clicks a UI element and describes an issue, you produce a structured GitHub issue brief.
+
+Your job:
+1. Diagnose the specific UI problem: styling, layout, spacing, color, interaction, or structure
+2. Write a clear issue description with technical specifics (which CSS properties, which component, what the fix entails)
+3. List concrete acceptance criteria that a QA engineer can verify
+4. Flag genuine open questions: design decisions, browser compatibility concerns, token/variable naming questions
+5. Recommend action type: github-issue for tracked changes, claude-code for immediate targeted fixes
+
+Be specific about DOM paths, class names, CSS properties, and pixel values when relevant.
+${baseStructure}`;
   }
 
   private formatUserPrompt(
@@ -137,33 +141,36 @@ Please analyze this feedback and provide actionable suggestions.`;
   }
 
   private parseResponse(response: string): AIResponse {
-    try {
-      // Try to extract JSON from markdown code blocks if present
-      const jsonMatch = response.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
-      const jsonString = jsonMatch ? jsonMatch[1] : response;
+    let parsed: any = null;
 
-      const parsed = JSON.parse(jsonString);
-      return {
-        analysis: parsed.analysis || 'No analysis provided',
-        suggestedActions: parsed.suggestedActions || [],
-        requiresCodeChange: parsed.requiresCodeChange || false,
-        confidence: parsed.confidence || 0.5,
-      };
-    } catch (error) {
-      // Fallback if parsing fails
-      return {
-        analysis: response,
-        suggestedActions: [
-          {
-            type: 'manual',
-            title: 'Manual Review Required',
-            description: response,
-            priority: 'medium',
-          },
-        ],
-        requiresCodeChange: false,
-        confidence: 0.3,
-      };
+    try {
+      // Try markdown code block first, then bare JSON object
+      const jsonMatch = response.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/) ||
+                        response.match(/(\{[\s\S]*\})/);
+      const jsonString = jsonMatch ? jsonMatch[1] : response;
+      parsed = JSON.parse(jsonString);
+    } catch {
+      // Plain text response — treat entire response as the analysis
     }
+
+    const result: AIResponse = parsed
+      ? {
+          analysis: parsed.analysis || response,
+          issueTitle: parsed.issueTitle,
+          issueDescription: parsed.issueDescription,
+          acceptanceCriteria: Array.isArray(parsed.acceptanceCriteria) ? parsed.acceptanceCriteria : undefined,
+          openQuestions: Array.isArray(parsed.openQuestions) ? parsed.openQuestions : undefined,
+          suggestedActions: Array.isArray(parsed.suggestedActions) ? parsed.suggestedActions : [],
+          requiresCodeChange: parsed.requiresCodeChange ?? false,
+          confidence: parsed.confidence ?? 0.5,
+        }
+      : {
+          analysis: response,
+          suggestedActions: [],
+          requiresCodeChange: false,
+          confidence: 0.3,
+        };
+
+    return result;
   }
 }
