@@ -13,6 +13,21 @@ export interface ElementContext {
   domPath: string;
   screenshot?: string;
   parentContext?: Partial<ElementContext>;
+  /**
+   * Module Federation: origins of remoteEntry.js scripts loaded on the page
+   * (e.g. ["http://localhost:3000"]).  Background resolves these against
+   * projectMappings to find the owning repo — more precise than page URL alone
+   * when the shell hosts multiple remotes.
+   * Populated by ElementCapture; undefined on non-MF pages.
+   */
+  mfRemoteOrigins?: string[];
+  /**
+   * Value of the nearest ancestor's data-mf-remote attribute, if present.
+   * Shell should set this on each remote mount point, e.g.:
+   *   <div data-mf-remote="cv-builder" id="remote-mount" />
+   * More precise than script-tag scanning when multiple remotes coexist.
+   */
+  mfRemoteName?: string;
 }
 
 export interface FeedbackRequest {
@@ -42,6 +57,11 @@ export interface AIResponse {
   suggestedActions: SuggestedAction[];
   requiresCodeChange: boolean;
   confidence: number;
+  // Rich issue fields — populated by UX/UI agent when suggesting a github-issue action
+  issueTitle?: string;
+  issueDescription?: string;
+  acceptanceCriteria?: string[];
+  openQuestions?: string[];
 }
 
 export interface SuggestedAction {
@@ -58,6 +78,22 @@ export interface GitHubIssueData {
   labels: string[];
   assignees?: string[];
   screenshot?: string;
+  // Rich fields
+  acceptanceCriteria?: string[];
+  openQuestions?: string[];
+  elementContext?: ElementContext;
+  pageUrl?: string;
+  elementScreenshot?: string;  // data URL — will be uploaded via GitHub Contents API
+  viewportScreenshot?: string; // data URL
+}
+
+export interface ProjectMapping {
+  /** hostname pattern, e.g. "cv.jim.software" or "localhost:3000" */
+  hostname: string;
+  /** GitHub repo in "owner/repo" format */
+  githubRepo: string;
+  /** Absolute path to local source, used in Claude Code payloads */
+  localPath?: string;
 }
 
 export interface ClaudeCodeCommand {
@@ -128,7 +164,7 @@ export interface ExtensionConfig {
 
   // Integration settings
   githubToken?: string;
-  githubRepo?: string;
+  githubRepo?: string;  // fallback single repo (legacy); prefer projectMappings
   claudeCodeEnabled: boolean;
 
   // Frame OS dev routing — when set, AI calls route through frame-agent instead of direct API
@@ -140,11 +176,18 @@ export interface ExtensionConfig {
   mcpServerUrl?: string;
   mcpWsUrl?: string;
 
+  // Claude Code relay — lightweight HTTP server that bridges extension → Claude Code terminal session
+  // Default: http://localhost:27182
+  claudeCodeRelayUrl?: string;
+
+  // Per-hostname project mappings (hostname → GitHub repo + local path)
+  projectMappings?: ProjectMapping[];
+
   // General settings
   autoScreenshot: boolean;
   keyboardShortcut: string;
   theme?: 'light' | 'dark' | 'auto';
-  localAppPath?: string;
+  localAppPath?: string;  // legacy; prefer projectMappings[].localPath
 }
 
 export interface ChatSession {
