@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { useState, useEffect } from 'react';
 import browser from 'webextension-polyfill';
-import type { ExtensionConfig } from '../types';
+import type { ExtensionConfig, ProjectMapping } from '../types';
 import { ThemeManager } from '../lib/theme';
 
 function Options() {
@@ -14,6 +14,11 @@ function Options() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark' | 'auto'>('auto');
+  const [mappingEdit, setMappingEdit] = useState<{ hostname: string; githubRepo: string; localPath: string }>({
+    hostname: '',
+    githubRepo: '',
+    localPath: '',
+  });
 
   useEffect(() => {
     loadConfig();
@@ -87,6 +92,24 @@ function Options() {
 
   const updateConfig = (key: keyof ExtensionConfig, value: any) => {
     setConfig({ ...config, [key]: value });
+  };
+
+  // ── Project mappings ────────────────────────────────────────────────────────
+  const mappings: ProjectMapping[] = config.projectMappings || [];
+
+  const addMapping = () => {
+    if (!mappingEdit.hostname || !mappingEdit.githubRepo) return;
+    const newMapping: ProjectMapping = {
+      hostname: mappingEdit.hostname.trim(),
+      githubRepo: mappingEdit.githubRepo.trim(),
+      localPath: mappingEdit.localPath.trim() || undefined,
+    };
+    updateConfig('projectMappings', [...mappings, newMapping]);
+    setMappingEdit({ hostname: '', githubRepo: '', localPath: '' });
+  };
+
+  const removeMapping = (index: number) => {
+    updateConfig('projectMappings', mappings.filter((_, i) => i !== index));
   };
 
   const cycleTheme = async () => {
@@ -201,11 +224,11 @@ function Options() {
           <div className="section">
             <h2>GitHub Integration</h2>
             <p style={{ color: 'var(--cds-text-secondary)' }}>
-              Configure GitHub to automatically create issues from feedback. Create a{' '}
+              Add a{' '}
               <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank" rel="noopener noreferrer">
                 Personal Access Token
               </a>{' '}
-              with repo scope.
+              with <code>repo</code> scope. Repos are resolved per page via project mappings below.
             </p>
 
             <div className="cds-form-item">
@@ -217,10 +240,13 @@ function Options() {
                 value={config.githubToken || ''}
                 onChange={(e) => updateConfig('githubToken', e.target.value)}
               />
+              <div className="cds-helper-text">
+                Screenshots are uploaded to the repo under <code>screenshots/mrplug/</code>.
+              </div>
             </div>
 
             <div className="cds-form-item">
-              <label htmlFor="github-repo" className="cds-label">Repository</label>
+              <label htmlFor="github-repo" className="cds-label">Fallback Repository</label>
               <input
                 id="github-repo"
                 type="text"
@@ -229,8 +255,124 @@ function Options() {
                 onChange={(e) => updateConfig('githubRepo', e.target.value)}
               />
               <div className="cds-helper-text">
-                Format: owner/repository (e.g., octocat/hello-world)
+                Used when no project mapping matches the current page.
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Claude Code Integration ── */}
+        <div className="options-panel">
+          <div className="section">
+            <h2>Claude Code Integration</h2>
+            <p style={{ color: 'var(--cds-text-secondary)' }}>
+              Send element context to your active Claude Code terminal session via the MrPlug relay server.
+            </p>
+
+            <div className="cds-form-item">
+              <label className="cds-toggle">
+                <input
+                  type="checkbox"
+                  checked={config.claudeCodeEnabled}
+                  onChange={(e) => updateConfig('claudeCodeEnabled', e.target.checked)}
+                />
+                <span className="cds-toggle__switch"></span>
+                <span className="cds-toggle__label">Enable Claude Code integration</span>
+              </label>
+            </div>
+
+            <div className="cds-form-item">
+              <label htmlFor="relay-url" className="cds-label">Relay Server URL</label>
+              <input
+                id="relay-url"
+                type="text"
+                placeholder="http://localhost:27182"
+                value={config.claudeCodeRelayUrl || 'http://localhost:27182'}
+                onChange={(e) => updateConfig('claudeCodeRelayUrl', e.target.value)}
+              />
+              <div className="cds-helper-text">
+                Start relay: <code>cd mrplug-mcp-server &amp;&amp; pnpm start</code>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Project Mappings ── */}
+        <div className="options-panel" style={{ gridColumn: '1 / -1' }}>
+          <div className="section">
+            <h2>Project Mappings</h2>
+            <p style={{ color: 'var(--cds-text-secondary)' }}>
+              Map hostnames to GitHub repos and local source paths. Used for GitHub issue routing and Claude Code context.
+            </p>
+
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', marginBottom: '1rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--cds-border-subtle)' }}>
+                  <th style={{ textAlign: 'left', padding: '0.5rem', color: 'var(--cds-text-secondary)', fontWeight: 500 }}>Hostname</th>
+                  <th style={{ textAlign: 'left', padding: '0.5rem', color: 'var(--cds-text-secondary)', fontWeight: 500 }}>GitHub Repo</th>
+                  <th style={{ textAlign: 'left', padding: '0.5rem', color: 'var(--cds-text-secondary)', fontWeight: 500 }}>Local Path</th>
+                  <th style={{ width: '40px' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {mappings.length === 0 && (
+                  <tr>
+                    <td colSpan={4} style={{ padding: '0.75rem 0.5rem', color: 'var(--cds-text-placeholder)', fontStyle: 'italic' }}>
+                      No mappings configured. Save to load Frame OS defaults.
+                    </td>
+                  </tr>
+                )}
+                {mappings.map((m, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid var(--cds-border-subtle-00)' }}>
+                    <td style={{ padding: '0.5rem', fontFamily: 'IBM Plex Mono, monospace', fontSize: '0.8rem' }}>{m.hostname}</td>
+                    <td style={{ padding: '0.5rem', fontFamily: 'IBM Plex Mono, monospace', fontSize: '0.8rem' }}>{m.githubRepo}</td>
+                    <td style={{ padding: '0.5rem', fontFamily: 'IBM Plex Mono, monospace', fontSize: '0.8rem', color: 'var(--cds-text-secondary)' }}>{m.localPath || '—'}</td>
+                    <td style={{ padding: '0.5rem', textAlign: 'center' }}>
+                      <button
+                        onClick={() => removeMapping(idx)}
+                        style={{ background: 'none', border: 'none', color: 'var(--cds-text-error)', cursor: 'pointer', fontSize: '1rem', padding: '0.125rem 0.25rem' }}
+                        title="Remove mapping"
+                      >×</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '0.5rem', alignItems: 'end' }}>
+              <div className="cds-form-item" style={{ margin: 0 }}>
+                <label className="cds-label" style={{ fontSize: '0.75rem' }}>Hostname</label>
+                <input
+                  type="text"
+                  placeholder="cv.jim.software"
+                  value={mappingEdit.hostname}
+                  onChange={(e) => setMappingEdit({ ...mappingEdit, hostname: e.target.value })}
+                  style={{ fontSize: '0.875rem' }}
+                />
+              </div>
+              <div className="cds-form-item" style={{ margin: 0 }}>
+                <label className="cds-label" style={{ fontSize: '0.75rem' }}>GitHub Repo</label>
+                <input
+                  type="text"
+                  placeholder="owner/repo"
+                  value={mappingEdit.githubRepo}
+                  onChange={(e) => setMappingEdit({ ...mappingEdit, githubRepo: e.target.value })}
+                  style={{ fontSize: '0.875rem' }}
+                />
+              </div>
+              <div className="cds-form-item" style={{ margin: 0 }}>
+                <label className="cds-label" style={{ fontSize: '0.75rem' }}>Local Path (optional)</label>
+                <input
+                  type="text"
+                  placeholder="/Users/yuri/ojfbot/cv-builder"
+                  value={mappingEdit.localPath}
+                  onChange={(e) => setMappingEdit({ ...mappingEdit, localPath: e.target.value })}
+                  style={{ fontSize: '0.875rem' }}
+                />
+              </div>
+              <button onClick={addMapping} disabled={!mappingEdit.hostname || !mappingEdit.githubRepo}>
+                Add
+              </button>
             </div>
           </div>
         </div>
