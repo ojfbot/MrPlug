@@ -1,0 +1,23 @@
+{
+  "name": "mrplug-relay",
+  "version": "0.1.0",
+  "description": "MrPlug relay server — bridges browser extension payloads to Claude Code terminal sessions",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.5",
+    "tsx": "^4.7.3"
+  }
+}
