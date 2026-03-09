@@ -440,11 +440,27 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
       const config = await Storage.getConfig();
       const relayUrl = config.claudeCodeRelayUrl || 'http://localhost:27182';
 
+      // Enrich the payload with resolved project mapping so the hook can tell
+      // Claude which repo and local path to work in.
+      const rawPayload = message.payload as Record<string, unknown>;
+      const mappings = config.projectMappings || DEFAULT_PROJECT_MAPPINGS;
+      const elemCtx = rawPayload.elementContext as { mfRemoteName?: string; mfRemoteOrigins?: string[] } | undefined;
+      const projectMapping = rawPayload.pageUrl
+        ? resolveProjectMapping(rawPayload.pageUrl as string, mappings, config.githubRepo, elemCtx)
+        : null;
+
+      const enrichedPayload = {
+        ...rawPayload,
+        resolvedRepo: projectMapping?.githubRepo ?? config.githubRepo ?? null,
+        resolvedLocalPath: projectMapping?.localPath ?? null,
+        resolvedRemoteName: elemCtx?.mfRemoteName ?? null,
+      };
+
       try {
         const res = await fetch(`${relayUrl}/submit`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(message.payload),
+          body: JSON.stringify(enrichedPayload),
         });
 
         if (res.ok) {

@@ -38,7 +38,9 @@ USER_COMMENT=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.s
 TAG=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin)['payload']; ctx=d.get('elementContext',{}); print(ctx.get('tagName','?'))" 2>/dev/null)
 DOM_PATH=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin)['payload']; ctx=d.get('elementContext',{}); print(ctx.get('domPath',''))" 2>/dev/null)
 CLASSES=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin)['payload']; ctx=d.get('elementContext',{}); print(' '.join(ctx.get('classList',[])))" 2>/dev/null)
-LOCAL_PATH=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin)['payload']; ctx=d.get('elementContext',{}); print(ctx.get('localPath',''))" 2>/dev/null)
+LOCAL_PATH=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin)['payload']; print(d.get('resolvedLocalPath',''))" 2>/dev/null)
+RESOLVED_REPO=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin)['payload']; print(d.get('resolvedRepo',''))" 2>/dev/null)
+REMOTE_NAME=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin)['payload']; print(d.get('resolvedRemoteName',''))" 2>/dev/null)
 AI_SUMMARY=$(echo "$RESPONSE" | python3 -c "
 import sys,json
 d=json.load(sys.stdin)['payload']
@@ -76,10 +78,20 @@ Acceptance criteria:
 ${AC}"
 fi
 
-if [ -n "$LOCAL_PATH" ]; then
+if [ -n "$RESOLVED_REPO" ]; then
   CONTEXT_BLOCK="${CONTEXT_BLOCK}
 
-Local source: ${LOCAL_PATH}"
+Repo: ${RESOLVED_REPO}"
+fi
+
+if [ -n "$REMOTE_NAME" ]; then
+  CONTEXT_BLOCK="${CONTEXT_BLOCK}
+MF remote: ${REMOTE_NAME}"
+fi
+
+if [ -n "$LOCAL_PATH" ]; then
+  CONTEXT_BLOCK="${CONTEXT_BLOCK}
+Local path: ${LOCAL_PATH}"
 fi
 
 CONTEXT_BLOCK="${CONTEXT_BLOCK}
