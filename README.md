@@ -25,7 +25,7 @@ MrPlug is a browser extension that enables developers, designers, and project ma
 
 1. **Navigate** to your localhost development app (e.g., `http://localhost:3000`)
 2. **Press** `Alt+Shift+F` (or `MacCtrl+Shift+F` on macOS) to activate feedback mode
-3. **Click** any UI element (button, input, div, card, etc.)
+3. **Press down on** any UI element (button, input, div, card, etc.)
 4. **Describe** what needs to change: _"This button is too small"_, _"spacing is off"_, _"should be blue"_
 5. **Review** AI-generated analysis with actionable suggestions
 6. **Choose** an action:
@@ -72,7 +72,7 @@ MrPlug is a browser extension that enables developers, designers, and project ma
 
 ### Core Capabilities
 
-- 🎯 **Element Selection**: Use keyboard shortcuts (`Alt+Shift+F` or `Alt+Shift+Click`) to select any element on localhost development sites
+- 🎯 **Element Selection**: Use keyboard shortcuts (`Alt+Shift+F`) to activate feedback mode and select any element on localhost development sites
 - 💬 **Natural Language Feedback**: Describe UI issues in plain English ("this button should be bigger", "spacing is off", etc.)
 - 🤖 **AI-Powered Analysis**: LangChain-backed AI agent analyzes your feedback and suggests actionable solutions
 - 🎨 **IBM Carbon Design System**: Clean, professional UI built with IBM Carbon components
@@ -97,7 +97,7 @@ MrPlug is a browser extension that enables developers, designers, and project ma
 ```
 mrplug/
 ├── src/
-│   ├── background/        # Service worker for extension lifecycle
+│   ├── background/        # Service worker: project routing, GitHub issue creation, Claude Code relay
 │   ├── content/           # Injected scripts for element selection
 │   ├── popup/             # Quick access popup interface
 │   ├── options/           # Settings and configuration page
@@ -265,7 +265,7 @@ pnpm build
 2. **Activate** feedback mode:
    - Press `Alt+Shift+F`, OR
    - Click the MrPlug extension icon and click "Start Feedback Mode"
-3. **Select** any UI element by clicking on it
+3. **Select** any UI element by pressing down (mousedown) on it
 4. **Describe** the issue or desired change in natural language
 5. **Review** AI-generated analysis and suggested actions
 6. **Choose** an action:
@@ -417,15 +417,16 @@ API keys are stored in browser's local storage (`chrome.storage.local`) which is
 
 MrPlug can send code modification commands to a running Claude Code/CLI instance via:
 
-1. **LocalStorage Communication**: Commands written to `localStorage.mrplug_claude_command`
-2. **File-Based**: Monitor `.mrplug/commands.json` (future)
-3. **MCP Server**: Model Context Protocol server (future)
-
+1. **Background Service Worker Relay**: The background service worker resolves project context via `resolveProjectMapping` and relays enriched payloads to Claude Code with the correct project and target information.
+2. **MCP Server**: A dedicated `mrplug-mcp-server` for Claude Code relay (commit f515699).
+3. **LocalStorage Communication** (legacy): Commands written to `localStorage.mrplug_claude_command`
+4. **File-Based**: Monitor `.mrplug/commands.json` (future)
 ### Setup
 
 1. Enable Claude Code integration in MrPlug settings
-2. Ensure Claude Code is running and monitoring for commands
-3. Use "Apply Fix" button after AI analysis
+1. Enable Claude Code integration in MrPlug settings
+2. Configure project mappings in the options settings panel
+3. Ensure Claude Code is running and monitoring for commands
 
 ### Command Format
 
@@ -527,8 +528,11 @@ Created issues include:
 
 - ✅ Element selection and context capture
 - ✅ AI-powered feedback analysis (OpenAI GPT-4)
-- ✅ GitHub issue creation with full context
-- ✅ Claude Code integration (localStorage bridge)
+- ✅ GitHub issue creation with full context and screenshots
+- ✅ Claude Code integration (background relay with project routing + MCP server)
+- ✅ Module Federation-aware project routing
+- ✅ Project mappings settings panel
+- ✅ Confirmation UX before GitHub issue creation and Claude Code injection
 - ✅ IBM Carbon Design UI
 - ✅ Localhost-only support
 - ✅ Behavior-driven testing
@@ -559,7 +563,7 @@ Created issues include:
 - [ ] Custom prompt templates
 - [ ] Integration with Linear, Jira, Asana
 - [ ] Slack/Discord notifications
-- [ ] MCP (Model Context Protocol) server
+- [x] MCP (Model Context Protocol) server
 
 ### v0.5.0 - Team Collaboration
 
@@ -631,10 +635,10 @@ A: Not directly. MrPlug works on web UIs. However, if you have a web-based mobil
 ### Claude Code Integration
 
 **Q: How does Claude Code integration work?**
-A: Currently via localStorage bridge. When you click "Apply Fix", MrPlug writes a structured command to `localStorage.mrplug_claude_command` which Claude Code (or your custom tooling) can monitor and execute. Future versions will support MCP (Model Context Protocol) server.
+A: MrPlug's background service worker resolves which project/repo a page belongs to via `resolveProjectMapping`, then relays an enriched payload to Claude Code with full project context. A dedicated MCP server (`mrplug-mcp-server`) is also available. Before any code is injected, a confirmation dialog shows the resolved project and target — you must confirm before anything fires.
 
 **Q: Can Claude Code automatically apply fixes without confirmation?**
-A: That depends on your Claude Code configuration, not MrPlug. MrPlug sends structured commands; you decide how Claude Code handles them (auto-apply, review first, etc.).
+A: No. As of Phase 5B, MrPlug enforces an explicit confirmation step before any Claude Code context injection. The user sees a summary of the resolved project and target, and must confirm. Cancellation aborts cleanly.
 
 **Q: What if I don't use Claude Code?**
 A: No problem! You can disable Claude Code integration and just use GitHub issue creation, or simply review the AI analysis manually.
