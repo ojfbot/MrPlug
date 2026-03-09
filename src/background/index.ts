@@ -243,21 +243,67 @@ let pendingScreenshot: string | null = null;
 let pendingScreenshotTime: number = 0;
 const PENDING_SCREENSHOT_MAX_AGE_MS = 10_000;
 
+/**
+ * Check whether a URL is within MrPlug's allowed host patterns.
+ * Only these origins may receive programmatic content script injection.
+ * Mirrors the content_scripts matches in manifest.json.
+ */
+function isAllowedHost(url: string): boolean {
+  try {
+    const { hostname, protocol } = new URL(url);
+    if (protocol === 'http:' && (hostname === 'localhost' || hostname === '127.0.0.1')) return true;
+    if (protocol === 'https:' && (hostname === 'localhost' || hostname === '127.0.0.1')) return true;
+    if (protocol === 'https:' && hostname.endsWith('.jim.software')) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 browser.commands.onCommand.addListener(async (command) => {
   if (command === 'trigger-feedback') {
     const tabs = await browser.tabs.query({ active: true, currentWindow: true });
-    if (tabs[0]?.id) {
-      try {
-        pendingScreenshot = await browser.tabs.captureVisibleTab(tabs[0].windowId, { format: 'png' });
-        pendingScreenshotTime = Date.now();
-        console.log('[MrPlug] Pre-captured screenshot at command time');
-      } catch (err) {
-        console.warn('[MrPlug] Pre-capture failed:', err);
-        pendingScreenshot = null;
-        pendingScreenshotTime = 0;
-      }
+    const tab = tabs[0];
+    if (!tab?.id) return;
 
-      await browser.tabs.sendMessage(tabs[0].id, { type: 'toggle-feedback' });
+    // Security: never touch tabs outside allowed hosts.
+    if (!tab.url || !isAllowedHost(tab.url)) {
+      console.log('[MrPlug] Command fired on non-allowed host, ignoring:', tab.url);
+      return;
+    }
+
+    try {
+      pendingScreenshot = await browser.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+      pendingScreenshotTime = Date.now();
+      console.log('[MrPlug] Pre-captured screenshot at command time');
+    } catch (err) {
+      console.warn('[MrPlug] Pre-capture failed:', err);
+      pendingScreenshot = null;
+      pendingScreenshotTime = 0;
+    }
+
+    try {
+      await browser.tabs.sendMessage(tab.id, { type: 'toggle-feedback' });
+    } catch {
+      // Content script not running in this tab (page was open before extension loaded).
+      // Inject programmatically — only allowed on permitted hosts (checked above).
+      console.log('[MrPlug] Content script not found, injecting programmatically...');
+      try {
+        const cr = (globalThis as any).chrome;
+        const mf = cr.runtime.getManifest();
+        const cs = mf.content_scripts?.[0];
+        if (cs?.css?.length) {
+          await cr.scripting.insertCSS({ target: { tabId: tab.id }, files: cs.css });
+        }
+        if (cs?.js?.length) {
+          await cr.scripting.executeScript({ target: { tabId: tab.id }, files: cs.js });
+        }
+        // Brief pause for content script to initialise, then toggle
+        await new Promise<void>((resolve) => setTimeout(resolve, 350));
+        await browser.tabs.sendMessage(tab.id, { type: 'toggle-feedback' });
+      } catch (injectErr) {
+        console.error('[MrPlug] Programmatic injection failed:', injectErr);
+      }
     }
   }
 });
