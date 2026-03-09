@@ -462,7 +462,7 @@ export function FeedbackModal({
     // Submit on Enter (without shift)
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit();
+      handleSubmit().catch((err) => console.error('[MrPlug] handleSubmit error:', err));
     }
     // Allow Shift+Enter for new line (default behavior)
   };
@@ -502,7 +502,7 @@ export function FeedbackModal({
       modalHeading={elementContext ? `<${elementContext.tagName.toLowerCase()}>${elementContext.id ? `#${elementContext.id}` : ''}` : 'MrPlug'}
       primaryButtonText="Send"
       secondaryButtonText="Close"
-      onRequestSubmit={handleSubmit}
+      onRequestSubmit={() => handleSubmit().catch((err) => console.error('[MrPlug] handleSubmit error:', err))}
       primaryButtonDisabled={!feedback.trim() || loading}
       size="lg"
     >
