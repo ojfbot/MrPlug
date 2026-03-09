@@ -53,6 +53,7 @@ export function FeedbackModal({
   const [config, setConfig] = useState<ExtensionConfig | null>(null);
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [claudeCodePending, setClaudeCodePending] = useState(false);
+  const [claudeCodeRepo, setClaudeCodeRepo] = useState<string | null>(null);
 
   // Helper to create simple status messages
   const createStatusMessage = (content: string): ConversationMessage => ({
@@ -170,12 +171,16 @@ export function FeedbackModal({
       const result = await browser.runtime.sendMessage({
         type: 'send-to-claude-code',
         payload,
-      }) as { success: boolean; error?: string };
+      }) as { success: boolean; resolvedRepo?: string | null; resolvedRemoteName?: string | null; error?: string };
 
       if (result.success) {
+        const repoLabel = result.resolvedRemoteName || result.resolvedRepo?.split('/').pop() || result.resolvedRepo;
         setClaudeCodePending(true);
+        setClaudeCodeRepo(repoLabel ?? null);
         const successMsg = createStatusMessage(
-          'Context queued in Claude Code relay — your next prompt will include this inspection.'
+          repoLabel
+            ? `Context queued for ${repoLabel} — will inject into your next Claude Code prompt.`
+            : 'Context queued in Claude Code relay — your next prompt will include this inspection.'
         );
         setConversationHistory((prev) =>
           prev.filter((m) => m.id !== progressMsg.id).concat(successMsg)
@@ -194,6 +199,7 @@ export function FeedbackModal({
   const handleClearClaudeCode = async () => {
     await browser.runtime.sendMessage({ type: 'clear-claude-code-context' }).catch(() => {});
     setClaudeCodePending(false);
+    setClaudeCodeRepo(null);
   };
 
   useEffect(() => {
@@ -530,7 +536,7 @@ export function FeedbackModal({
             gap: '0.5rem',
           }}>
             <span style={{ flex: 1 }}>
-              ⬆ Context queued — will inject into your next Claude Code prompt
+              ⬆ Context queued{claudeCodeRepo ? ` · ${claudeCodeRepo}` : ''} — will inject into your next Claude Code prompt
             </span>
             <button
               onClick={handleClearClaudeCode}

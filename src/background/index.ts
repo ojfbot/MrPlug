@@ -465,7 +465,11 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
 
         if (res.ok) {
           console.log('[MrPlug] Payload sent to Claude Code relay');
-          return { success: true };
+          return {
+            success: true,
+            resolvedRepo: enrichedPayload.resolvedRepo,
+            resolvedRemoteName: enrichedPayload.resolvedRemoteName,
+          };
         }
         return { success: false, error: `Relay responded with ${res.status}` };
       } catch (err) {
