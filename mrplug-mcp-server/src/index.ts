@@ -102,6 +102,25 @@ app.get('/consume', async (req, res) => {
 });
 
 /**
+ * DELETE /clear
+ * Extension calls this when the user explicitly cancels the pending payload
+ * (e.g. presses "Clear" in the MrPlug modal badge banner).
+ */
+app.delete('/clear', async (_req, res) => {
+  pendingPayload = null;
+  pendingReceivedAt = 0;
+
+  try {
+    await fs.unlink(PAYLOAD_FILE);
+  } catch {
+    // Already gone — that's fine
+  }
+
+  console.log('[mrplug-relay] Pending payload cleared by user');
+  res.json({ success: true });
+});
+
+/**
  * GET /status
  * Simple health check.
  */

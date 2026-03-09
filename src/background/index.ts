@@ -451,6 +451,19 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
       }
     }
 
+    case 'clear-claude-code-context': {
+      const config = await Storage.getConfig();
+      const relayUrl = config.claudeCodeRelayUrl || 'http://localhost:27182';
+
+      try {
+        const res = await fetch(`${relayUrl}/clear`, { method: 'DELETE' });
+        return { success: res.ok };
+      } catch {
+        // Relay not running — nothing to clear
+        return { success: true };
+      }
+    }
+
     case 'resolve-project': {
       // Content script can ask: "what project is this page?"
       const config = await Storage.getConfig();

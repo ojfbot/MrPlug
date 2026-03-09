@@ -52,6 +52,7 @@ export function FeedbackModal({
   const textAreaRef = React.useRef<HTMLTextAreaElement>(null);
   const [config, setConfig] = useState<ExtensionConfig | null>(null);
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
+  const [claudeCodePending, setClaudeCodePending] = useState(false);
 
   // Helper to create simple status messages
   const createStatusMessage = (content: string): ConversationMessage => ({
@@ -172,8 +173,9 @@ export function FeedbackModal({
       }) as { success: boolean; error?: string };
 
       if (result.success) {
+        setClaudeCodePending(true);
         const successMsg = createStatusMessage(
-          'Payload sent to Claude Code. Switch to your terminal — the context is ready.'
+          'Context queued in Claude Code relay — your next prompt will include this inspection.'
         );
         setConversationHistory((prev) =>
           prev.filter((m) => m.id !== progressMsg.id).concat(successMsg)
@@ -187,6 +189,11 @@ export function FeedbackModal({
       );
       setConversationHistory((prev) => [...prev, errorMsg]);
     }
+  };
+
+  const handleClearClaudeCode = async () => {
+    await browser.runtime.sendMessage({ type: 'clear-claude-code-context' }).catch(() => {});
+    setClaudeCodePending(false);
   };
 
   useEffect(() => {
@@ -508,6 +515,40 @@ export function FeedbackModal({
           flexDirection: 'column',
           padding: '0 1rem',
         }}>
+
+        {/* Claude Code pending context banner */}
+        {claudeCodePending && (
+          <div style={{
+            marginBottom: '0.5rem',
+            padding: '0.375rem 0.75rem',
+            background: 'var(--cds-support-info-inverse, #0043ce)',
+            borderRadius: '4px',
+            fontSize: '0.75rem',
+            color: 'var(--cds-text-inverse, #fff)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+          }}>
+            <span style={{ flex: 1 }}>
+              ⬆ Context queued — will inject into your next Claude Code prompt
+            </span>
+            <button
+              onClick={handleClearClaudeCode}
+              style={{
+                background: 'rgba(255,255,255,0.15)',
+                border: 'none',
+                borderRadius: '2px',
+                color: 'inherit',
+                cursor: 'pointer',
+                fontSize: '0.7rem',
+                padding: '2px 6px',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Clear
+            </button>
+          </div>
+        )}
 
         {/* Status Bar with Connection Links */}
         <div style={{
