@@ -964,7 +964,7 @@ export function FeedbackModal({
               response.suggestedActions.map((action, idx) => (
                 <button
                   key={`${action.type}-${action.title}-${idx}`}
-                  onClick={() => handleActionClick(action)}
+                  onClick={() => handleActionClick(action).catch((err) => console.error('[MrPlug] handleActionClick error:', err))}
                   title={`${action.description}\n\nClick to ${action.type === 'github-issue' ? 'create issue' : action.type === 'claude-code' ? 'send to Claude Code' : 'view details'}`}
                   style={{
                     display: 'inline-flex',
