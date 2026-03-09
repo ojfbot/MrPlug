@@ -101,7 +101,25 @@ function resolveProjectMapping(
     if (byName) return byName;
   }
 
-  // 2. Script-tag origins: match remote entry origin to a project mapping
+  // 2. Page URL — more reliable than remoteEntry origins for shell-chrome elements.
+  //    Shell at localhost:4000 loads all remote entry scripts; using origins here
+  //    would route a shell inspection to the first matching remote (wrong).
+  //    Page URL correctly routes shell chrome to ojfbot/shell.
+  try {
+    const url = new URL(pageUrl);
+    const hostWithPort = url.port ? `${url.hostname}:${url.port}` : url.hostname;
+
+    const match =
+      mappings.find((m) => m.hostname === hostWithPort) ||
+      mappings.find((m) => m.hostname === url.hostname);
+
+    if (match) return match;
+  } catch {
+    // Invalid URL
+  }
+
+  // 3. Script-tag origins: last resort for non-shell MF host pages where
+  //    neither data-mf-remote nor page URL resolved the remote.
   if (elementContext?.mfRemoteOrigins?.length) {
     for (const origin of elementContext.mfRemoteOrigins) {
       try {
@@ -117,17 +135,9 @@ function resolveProjectMapping(
     }
   }
 
-  // 3. Page URL (handles non-MF pages and shell URLs when no remotes detected)
+  // 4. Global fallback repo
   try {
     const url = new URL(pageUrl);
-    const hostWithPort = url.port ? `${url.hostname}:${url.port}` : url.hostname;
-
-    const match =
-      mappings.find((m) => m.hostname === hostWithPort) ||
-      mappings.find((m) => m.hostname === url.hostname);
-
-    if (match) return match;
-
     if (fallbackRepo) {
       return { hostname: url.hostname, githubRepo: fallbackRepo };
     }
