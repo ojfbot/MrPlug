@@ -16,8 +16,8 @@
 
 RELAY_URL="${MRPLUG_RELAY_URL:-http://127.0.0.1:27182}"
 
-# Read + consume payload from relay
-RESPONSE=$(curl -sf --max-time 1 "${RELAY_URL}/consume" 2>/dev/null)
+# Read + consume payload from relay, scoped to this working directory
+RESPONSE=$(curl -sf --max-time 1 "${RELAY_URL}/consume?path=$(pwd)" 2>/dev/null)
 STATUS=$?
 
 # If relay unreachable or no pending payload, pass through unchanged
