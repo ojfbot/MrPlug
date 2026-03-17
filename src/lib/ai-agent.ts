@@ -107,6 +107,19 @@ Be specific about DOM paths, class names, CSS properties, and pixel values when 
 ${baseStructure}`;
   }
 
+  // Sanitize DOM-sourced strings to prevent prompt injection.
+  // Strips characters outside a safe set and truncates to maxLen.
+  private sanitizeDOMContent(s: string, maxLen = 500): string {
+    return s.replace(/[^\w\s\-_:;.,#()/%]/g, '').slice(0, maxLen);
+  }
+
+  // Safe subset of CSS properties — avoids injecting arbitrary content values
+  private static readonly SAFE_CSS_PROPS = new Set([
+    'color', 'background-color', 'font-size', 'font-family', 'font-weight',
+    'display', 'position', 'width', 'height', 'padding', 'margin',
+    'border', 'opacity', 'visibility', 'z-index', 'overflow',
+  ]);
+
   private formatUserPrompt(
     userInput: string,
     elementContext: ElementContext,
@@ -116,25 +129,36 @@ ${baseStructure}`;
       ? `\n\nConversation History:\n${conversationHistory.map((msg) => `${msg.role}: ${msg.content}`).join('\n')}`
       : '';
 
-    return `User Feedback: "${userInput}"
+    // Sanitize all DOM-sourced content before interpolation (issue #15 — HIGH severity)
+    const safeInput = userInput.slice(0, 2000);
+    const safeClasses = elementContext.classList.map(c => this.sanitizeDOMContent(c)).join(', ') || 'none';
+    const safeId = this.sanitizeDOMContent(elementContext.id || 'none');
+    const safeDomPath = this.sanitizeDOMContent(elementContext.domPath, 300);
+    const safeTag = this.sanitizeDOMContent(elementContext.tagName);
+
+    const safeStyles = Object.entries(elementContext.computedStyles)
+      .filter(([key]) => AIAgent.SAFE_CSS_PROPS.has(key))
+      .map(([key, value]) => `- ${key}: ${this.sanitizeDOMContent(String(value), 100)}`)
+      .join('\n');
+
+    const parentContext = elementContext.parentContext
+      ? `Parent Context:\n- Tag: ${this.sanitizeDOMContent(elementContext.parentContext.tagName)}\n- Classes: ${(elementContext.parentContext.classList ?? []).map(c => this.sanitizeDOMContent(c)).join(', ') || 'none'}\n`
+      : '';
+
+    return `User Feedback: "${safeInput}"
 
 Element Context:
-- Tag: ${elementContext.tagName}
-- Classes: ${elementContext.classList.join(', ') || 'none'}
-- ID: ${elementContext.id || 'none'}
-- DOM Path: ${elementContext.domPath}
+- Tag: ${safeTag}
+- Classes: ${safeClasses}
+- ID: ${safeId}
+- DOM Path: ${safeDomPath}
 - Dimensions: ${elementContext.boundingRect.width}x${elementContext.boundingRect.height}
 - Position: top=${elementContext.boundingRect.top}, left=${elementContext.boundingRect.left}
 
 Key Styles:
-${Object.entries(elementContext.computedStyles)
-  .map(([key, value]) => `- ${key}: ${value}`)
-  .join('\n')}
+${safeStyles}
 
-${elementContext.parentContext ? `Parent Context:
-- Tag: ${elementContext.parentContext.tagName}
-- Classes: ${elementContext.parentContext.classList?.join(', ') || 'none'}
-` : ''}
+${parentContext}
 ${historyText}
 
 Please analyze this feedback and provide actionable suggestions.`;
