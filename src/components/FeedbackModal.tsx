@@ -21,6 +21,7 @@ interface FeedbackModalProps {
   onClose: () => void;
   onSubmit: (feedback: string, agentMode: 'ui' | 'ux') => Promise<AIResponse>;
   onNewSession: () => void;
+  claudeCodeConsumedAt?: number;
 }
 
 export function FeedbackModal({
@@ -32,6 +33,7 @@ export function FeedbackModal({
   onClose,
   onSubmit,
   onNewSession,
+  claudeCodeConsumedAt,
 }: FeedbackModalProps) {
   const [feedback, setFeedback] = useState('');
   const [loading, setLoading] = useState(false);
@@ -201,6 +203,14 @@ export function FeedbackModal({
     setClaudeCodePending(false);
     setClaudeCodeRepo(null);
   };
+
+  // When background polling detects Claude Code consumed the relay context, clear the banner.
+  useEffect(() => {
+    if (claudeCodeConsumedAt) {
+      setClaudeCodePending(false);
+      setClaudeCodeRepo(null);
+    }
+  }, [claudeCodeConsumedAt]);
 
   useEffect(() => {
     if (!isOpen) {

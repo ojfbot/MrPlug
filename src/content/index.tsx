@@ -29,6 +29,9 @@ class MrPlugContent {
   // Debounce: when keydown handler fires Cmd+Shift+F, we set this timestamp so the
   // subsequent 'toggle-feedback' message from the background command path doesn't double-toggle.
   private keydownActivatedAt: number = 0;
+  // Incremented each time the background signals that Claude Code consumed the relay context.
+  // Passed as prop to FeedbackModal so it can clear the pending banner via useEffect.
+  private claudeCodeConsumedAt: number = 0;
   private dismissedPageModal: {
     modal: HTMLElement;
     backdrop: HTMLElement | null;
@@ -117,6 +120,7 @@ class MrPlugContent {
             selectedElement={this.selectedElement}
             elementScreenshot={this.elementScreenshot}
             viewportScreenshot={this.viewportScreenshot}
+            claudeCodeConsumedAt={this.claudeCodeConsumedAt}
             onClose={() => this.closeModal()}
             onSubmit={(feedback, agentMode) => this.handleFeedbackSubmit(feedback, agentMode)}
             onNewSession={() => this.handleNewSession()}
@@ -231,6 +235,11 @@ class MrPlugContent {
         }
         console.log('[MrPlug] Toggling feedback mode, current isActive:', this.isActive);
         this.toggleActive();
+        return Promise.resolve({ success: true });
+      }
+      if (message.type === 'claude-code-context-consumed') {
+        this.claudeCodeConsumedAt = Date.now();
+        this.renderUI();
         return Promise.resolve({ success: true });
       }
       if (message.type === 'ping') {

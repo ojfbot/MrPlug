@@ -63,9 +63,14 @@ app.post('/submit', async (req, res) => {
 });
 
 /**
- * GET /consume
+ * GET /consume[?path=<cwd>]
  * Claude Code hook calls this to read-and-consume the pending payload.
- * Returns 204 if nothing pending.
+ *
+ * Session isolation: if ?path=<cwd> is supplied and the payload carries a
+ * resolvedLocalPath, the payload is only consumed when the two match.
+ * A non-matching session gets 204 — the payload stays for the correct session.
+ *
+ * Returns 204 if nothing pending or path does not match.
  */
 app.get('/consume', async (req, res) => {
   // Try memory first, then disk
@@ -84,6 +89,19 @@ app.get('/consume', async (req, res) => {
   }
 
   if (!pendingPayload) {
+    res.status(204).send();
+    return;
+  }
+
+  // Session isolation: if the caller provides ?path and the payload has a
+  // resolvedLocalPath, only deliver to the matching session.
+  const callerPath = typeof req.query.path === 'string' ? req.query.path.trim() : null;
+  const payloadPath = typeof pendingPayload.resolvedLocalPath === 'string'
+    ? pendingPayload.resolvedLocalPath.trim()
+    : null;
+
+  if (callerPath && payloadPath && callerPath !== payloadPath) {
+    console.log(`[mrplug-relay] Session mismatch — payload for ${payloadPath}, caller is ${callerPath}`);
     res.status(204).send();
     return;
   }
@@ -122,14 +140,19 @@ app.delete('/clear', async (_req, res) => {
 
 /**
  * GET /status
- * Simple health check.
+ * Health check + pending payload state. Polled by the extension to auto-clear
+ * the banner once Claude Code consumes the context.
  */
 app.get('/status', (_req, res) => {
+  const pendingLocalPath = pendingPayload
+    ? (pendingPayload.resolvedLocalPath as string | null) ?? null
+    : null;
   res.json({
     status: 'running',
     port: PORT,
     hasPendingPayload: pendingPayload !== null,
     pendingAge: pendingPayload ? Date.now() - pendingReceivedAt : null,
+    pendingLocalPath,
   });
 });
 
