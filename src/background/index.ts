@@ -7,6 +7,66 @@ import type { AIResponse, ProjectMapping, GitHubIssueData } from '../types';
 
 console.log('[MrPlug] Background service worker started');
 
+// ─── Relay polling — banner auto-clear ──────────────────────────────────────
+// After a successful send-to-claude-code, poll GET /status every 3 s.
+// When hasPendingPayload flips false (Claude Code consumed the context),
+// broadcast claude-code-context-consumed to all tabs so the banner clears.
+
+const POLL_INTERVAL_MS = 3000;
+const POLL_MAX_MS = 15 * 60 * 1000; // stop after 15 min (stale context safety)
+
+let relayPollTimer: ReturnType<typeof setInterval> | null = null;
+let relayPollStartedAt = 0;
+
+function stopRelayPolling() {
+  if (relayPollTimer !== null) {
+    clearInterval(relayPollTimer);
+    relayPollTimer = null;
+  }
+}
+
+async function broadcastToAllTabs(message: Record<string, unknown>) {
+  const tabs = await browser.tabs.query({});
+  for (const tab of tabs) {
+    if (tab.id != null) {
+      browser.tabs.sendMessage(tab.id, message).catch(() => {
+        // Tab may not have content script — ignore
+      });
+    }
+  }
+}
+
+function startRelayPolling(relayUrl: string) {
+  stopRelayPolling();
+  relayPollStartedAt = Date.now();
+
+  relayPollTimer = setInterval(async () => {
+    if (Date.now() - relayPollStartedAt > POLL_MAX_MS) {
+      console.log('[MrPlug] Relay poll timeout — stopping');
+      stopRelayPolling();
+      await broadcastToAllTabs({ type: 'claude-code-context-consumed' });
+      return;
+    }
+
+    try {
+      const res = await fetch(`${relayUrl}/status`, { signal: AbortSignal.timeout(2000) });
+      if (!res.ok) return;
+      const status = await res.json() as { hasPendingPayload: boolean };
+
+      if (!status.hasPendingPayload) {
+        console.log('[MrPlug] Relay context consumed — clearing banner');
+        stopRelayPolling();
+        await broadcastToAllTabs({ type: 'claude-code-context-consumed' });
+      }
+    } catch {
+      // Relay unreachable — stop polling, treat as consumed to avoid stale banner
+      console.log('[MrPlug] Relay unreachable during poll — clearing banner');
+      stopRelayPolling();
+      await broadcastToAllTabs({ type: 'claude-code-context-consumed' });
+    }
+  }, POLL_INTERVAL_MS);
+}
+
 // ─── Default project mappings for Frame OS repos ────────────────────────────
 const DEFAULT_PROJECT_MAPPINGS: ProjectMapping[] = [
   {
@@ -309,7 +369,7 @@ browser.commands.onCommand.addListener(async (command) => {
 });
 
 // ─── Message handler ─────────────────────────────────────────────────────────
-browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
+browser.runtime.onMessage.addListener(async (message: { type: string; [key: string]: unknown }, sender: browser.Runtime.MessageSender) => {
   console.log('[MrPlug] Received message:', message.type);
 
   switch (message.type) {
@@ -391,6 +451,11 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
     }
 
     case 'ai-request': {
+      // Validate sender — only accept AI requests from extension tabs, not arbitrary pages
+      if (!sender.tab?.id) {
+        console.warn('[MrPlug] ai-request rejected: no sender.tab');
+        return { error: 'Unauthorized sender' };
+      }
       const config = await Storage.getConfig();
 
       // Dev mode: route through frame-agent
@@ -511,6 +576,7 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
 
         if (res.ok) {
           console.log('[MrPlug] Payload sent to Claude Code relay');
+          startRelayPolling(relayUrl);
           return {
             success: true,
             resolvedRepo: enrichedPayload.resolvedRepo,
@@ -528,6 +594,7 @@ browser.runtime.onMessage.addListener(async (message: any, _sender: any) => {
     }
 
     case 'clear-claude-code-context': {
+      stopRelayPolling(); // user manually cleared — stop polling
       const config = await Storage.getConfig();
       const relayUrl = config.claudeCodeRelayUrl || 'http://localhost:27182';
 
