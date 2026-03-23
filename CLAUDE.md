@@ -26,7 +26,8 @@ Single-package MV3 extension (not yet the planned monorepo). Key constraint: **n
 src/
   manifest.json           MV3 manifest — host_permissions covers localhost + *.jim.software
   background/index.ts     Service worker. All AI calls live here. Imports AIAgent.
-                          Also handles project mappings, GitHub issue creation, and Claude Code relay.
+                          Also handles project mappings, GitHub issue creation, Claude Code relay,
+                          and file-techdebt (posts AI-spotted debt to TECHDEBT.md via frame-agent).
   content/index.tsx       Injected into pages. Pure UI + messaging — no AI SDK.
   components/
     FeedbackModal.tsx     Carbon <Modal> — always cds--g100 (Frame dark)
@@ -71,9 +72,9 @@ src/
 | 2B.5 | Frame visual identity (ojf tokens, g100, top-bar hint, Cmd+Shift+F) | Done |
 | 5A | frame-agent routing: background POSTs to `frame-agent/api/chat` instead of direct Anthropic | Next |
 | 5B | GitHub issue creation, Claude Code relay, MF-aware project routing | **Done** |
+| 5B.1 | file-techdebt handler: background posts AI-spotted debt to frame-agent → `TECHDEBT.md` | **Done** |
 | 5C | Replace alert()/confirm() with Carbon InlineNotification | Polish |
 | 5D | Replace emoji action icons with Carbon icons | Polish |
-
 ## Things NOT to do
 
 - Do not import `AIAgent` or any AI SDK in `src/content/`
