@@ -607,6 +607,59 @@ browser.runtime.onMessage.addListener(async (message: { type: string; [key: stri
       }
     }
 
+    case 'file-techdebt': {
+      // Post AI analysis to frame-agent's /api/techdebt endpoint
+      const config = await Storage.getConfig();
+      const frameAgentUrl = config.frameAgentUrl || 'http://localhost:4001';
+      const mappings = config.projectMappings || DEFAULT_PROJECT_MAPPINGS;
+      const elemCtx = message.elementContext as { mfRemoteName?: string; mfRemoteOrigins?: string[] } | undefined;
+      const pageUrl = message.pageUrl as string | undefined;
+      const projectMapping = pageUrl
+        ? resolveProjectMapping(pageUrl, mappings, config.githubRepo, elemCtx)
+        : null;
+
+      const aiResponse = message.aiResponse as AIResponse | undefined;
+      const incident = {
+        source: 'mrplug' as const,
+        triggerReason: (message.triggerReason as string) || 'manual_review',
+        shortTitle: aiResponse?.issueTitle || (message.shortTitle as string) || 'MrPlug finding',
+        contextSummary: aiResponse?.analysis || (message.contextSummary as string) || '',
+        repo: projectMapping?.githubRepo?.split('/')[1] ?? undefined,
+        filePath: (message.filePath as string) ?? undefined,
+        localPath: projectMapping?.localPath ?? undefined,
+        suggestedActions: aiResponse?.suggestedActions?.map(a => ({
+          type: a.type,
+          title: a.title,
+          description: a.description,
+          priority: a.priority,
+        })),
+        requiresCodeChange: aiResponse?.requiresCodeChange,
+        confidence: aiResponse?.confidence,
+        acceptanceCriteria: aiResponse?.acceptanceCriteria,
+      };
+
+      try {
+        const res = await fetch(`${frameAgentUrl}/api/techdebt`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(incident),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          console.log('[MrPlug] Tech debt filed:', data.data?.shortTitle);
+          return { success: true, ...data.data };
+        }
+        return { success: false, error: `frame-agent responded with ${res.status}` };
+      } catch (err) {
+        console.error('[MrPlug] Tech debt filing failed:', err);
+        return {
+          success: false,
+          error: 'frame-agent not running. Start it with: /frame-dev start',
+        };
+      }
+    }
+
     case 'resolve-project': {
       // Content script can ask: "what project is this page?"
       const config = await Storage.getConfig();
