@@ -37,7 +37,7 @@ const EXTENSION_DIR = path.resolve(__dirname, '../dist');
 const TSX = path.resolve(__dirname, '../mrplug-mcp-server/node_modules/.bin/tsx');
 const TEST_PORT = parseInt(process.env.MRPLUG_TEST_PORT ?? '27184', 10);
 const BASE = `http://127.0.0.1:${TEST_PORT}`;
-const LOCAL_PATH = '/Users/test/ojfbot/cv-builder'; // must match what payload carries
+const LOCAL_PATH = process.env.MRPLUG_TEST_LOCAL_PATH ?? '/tmp/mrplug-test-project';
 
 async function waitForRelay(timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -95,9 +95,11 @@ test('banner disappears after relay payload is consumed', async () => {
     ],
   });
 
-  // ── 3. Navigate to a test page so the content script is injected ─────────
+  // ── 3. Navigate to a localhost page so the content script is injected ────
+  //    MrPlug only injects on localhost or *.jim.software (see CLAUDE.md).
+  //    example.com would never get the content script, making assertions vacuous.
   const page = await context.newPage();
-  await page.goto('https://example.com'); // any real page works
+  await page.goto('http://localhost:3000'); // must be an allowed host for injection
 
   // Wait for the extension content script to initialise
   await page.waitForTimeout(500);
@@ -115,32 +117,22 @@ test('banner disappears after relay payload is consumed', async () => {
   // The service worker may take a moment to register
   const sw = serviceWorker ?? await context.waitForEvent('serviceworker');
 
-  // Trigger polling on the test relay URL
+  // Trigger a simulated "context consumed" broadcast from the service worker.
+  // chrome.tabs is only available in the extension context (sw.evaluate), NOT
+  // in page.evaluate (which runs in the web page context).
   await sw.evaluate(
-    ([relayUrl, tabId]: [string, number]) => {
-      // startRelayPolling is not exported, but we can simulate what it does:
-      // POST to relay → success → polling starts. Instead, send the background
-      // a synthetic send-to-claude-code response to kick off the poll.
-      //
-      // Background listens for the 'send-to-claude-code' message type and,
-      // on success, calls startRelayPolling(relayUrl). We can't call that
-      // directly from here, so we instead directly broadcast the consumed
-      // message after a short delay (simulating a fast poll cycle).
-      //
-      // For a full integration test, replace this with a real UI flow or
-      // add a test-only message type to background.ts.
-      setTimeout(() => {
-        // Simulate background detecting hasPendingPayload: false
-        chrome.tabs.sendMessage(tabId, { type: 'claude-code-context-consumed' });
-      }, 1000); // 1 s — represents one poll cycle finding no pending payload
-    },
-    [BASE, await page.evaluate(() => {
-      return new Promise<number>((resolve) => {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-          resolve(tabs[0]?.id ?? -1);
-        });
+    () => {
+      // Query the active tab from the extension context, then broadcast
+      // the consumed message after a short delay (simulates one poll cycle).
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const tabId = tabs[0]?.id;
+        if (tabId != null) {
+          setTimeout(() => {
+            chrome.tabs.sendMessage(tabId, { type: 'claude-code-context-consumed' });
+          }, 1000);
+        }
       });
-    })] as [string, number]
+    },
   );
 
   // ── 5. Consume the relay payload (simulating Claude Code hook calling /consume)
@@ -196,4 +188,7 @@ test('relay: consume without path delivers to any session', async () => {
 
   const r = await fetch(`${BASE}/consume`);
   expect(r.status).toBe(200);
+
+  // Clean up so subsequent tests start with a clean relay
+  await fetch(`${BASE}/clear`, { method: 'DELETE' });
 });

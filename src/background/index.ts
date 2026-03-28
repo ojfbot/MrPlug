@@ -15,6 +15,10 @@ console.log('[MrPlug] Background service worker started');
 const POLL_INTERVAL_MS = 3000;
 const POLL_MAX_MS = 15 * 60 * 1000; // stop after 15 min (stale context safety)
 
+// NOTE: MV3 service workers are killed after ~30s of inactivity. If the worker
+// terminates mid-poll, relayPollTimer resets to null on restart and the banner
+// never clears. A chrome.storage-based restart guard in onStartup would fix this
+// but is low priority — the 15-min timeout + user re-interaction covers most cases.
 let relayPollTimer: ReturnType<typeof setInterval> | null = null;
 let relayPollStartedAt = 0;
 
@@ -59,10 +63,11 @@ function startRelayPolling(relayUrl: string) {
         await broadcastToAllTabs({ type: 'claude-code-context-consumed' });
       }
     } catch {
-      // Relay unreachable — stop polling, treat as consumed to avoid stale banner
-      console.log('[MrPlug] Relay unreachable during poll — clearing banner');
+      // Relay unreachable — broadcast an error so the UI can show a warning
+      // instead of silently clearing the banner as if the context was consumed.
+      console.warn('[MrPlug] Relay unreachable during poll — notifying tabs');
       stopRelayPolling();
-      await broadcastToAllTabs({ type: 'claude-code-context-consumed' });
+      await broadcastToAllTabs({ type: 'claude-code-relay-error' });
     }
   }, POLL_INTERVAL_MS);
 }
@@ -608,6 +613,10 @@ browser.runtime.onMessage.addListener(async (message: { type: string; [key: stri
     }
 
     case 'file-techdebt': {
+      if (!sender.tab?.id) {
+        console.warn('[MrPlug] file-techdebt rejected: no sender.tab');
+        return { error: 'Unauthorized sender' };
+      }
       // Post AI analysis to frame-agent's /api/techdebt endpoint
       const config = await Storage.getConfig();
       const frameAgentUrl = config.frameAgentUrl || 'http://localhost:4001';

@@ -26,8 +26,8 @@ const RELAY_SRC = path.resolve(__dirname, '../../src/index.ts');
 const TEST_PORT = 27183;
 const BASE = `http://127.0.0.1:${TEST_PORT}`;
 
-const MATCHING_PATH = '/Users/test/ojfbot/cv-builder';
-const OTHER_PATH = '/Users/test/ojfbot/shell';
+const MATCHING_PATH = process.env.MRPLUG_TEST_LOCAL_PATH ?? '/tmp/mrplug-test-project';
+const OTHER_PATH = '/tmp/mrplug-test-other';
 
 let relay: ChildProcess;
 
@@ -144,6 +144,10 @@ describe('relay session isolation', () => {
         }),
       });
       expect(r.status).toBe(200);
+    });
+
+    afterAll(async () => {
+      await fetch(`${BASE}/clear`, { method: 'DELETE' });
     });
 
     it('delivers to any caller when no resolvedLocalPath in payload', async () => {
