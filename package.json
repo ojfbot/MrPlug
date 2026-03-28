@@ -11,6 +11,7 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
+    "e2e": "pnpm build && playwright test",
     "lint": "eslint . --ext ts,tsx",
     "type-check": "tsc --noEmit",
     "package": "pnpm build && web-ext build -s dist -a web-ext-artifacts",

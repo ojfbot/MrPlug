@@ -242,6 +242,14 @@ class MrPlugContent {
         this.renderUI();
         return Promise.resolve({ success: true });
       }
+      if (message.type === 'claude-code-relay-error') {
+        // Relay became unreachable — clear banner but log a warning so the
+        // user knows the context was NOT actually consumed by Claude Code.
+        console.warn('[MrPlug] Relay unreachable — banner cleared (context may not have been consumed)');
+        this.claudeCodeConsumedAt = Date.now();
+        this.renderUI();
+        return Promise.resolve({ success: true });
+      }
       if (message.type === 'ping') {
         return Promise.resolve({ success: true, loaded: true });
       }
