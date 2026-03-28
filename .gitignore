@@ -85,6 +85,7 @@ dev-settings.json
 # Managed by core — do not commit
 domain-knowledge/
 .claude/commands/
+.claude/skills/
 
 # Personal / private knowledge — never committed
 personal-knowledge/
