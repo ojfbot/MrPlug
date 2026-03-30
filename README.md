@@ -696,6 +696,28 @@ Built on the shoulders of giants:
 
 ---
 
+## Frame OS Ecosystem
+
+Part of [Frame OS](https://github.com/ojfbot/shell) — an AI-native application OS.
+
+| Repo | Description |
+|------|-------------|
+| [shell](https://github.com/ojfbot/shell) | Module Federation host + frame-agent LLM gateway |
+| [core](https://github.com/ojfbot/core) | Workflow framework — 30+ slash commands + TypeScript engine |
+| [cv-builder](https://github.com/ojfbot/cv-builder) | AI-powered resume builder with LangGraph agents |
+| [blogengine](https://github.com/ojfbot/BlogEngine) | AI blog content creation platform |
+| [TripPlanner](https://github.com/ojfbot/TripPlanner) | AI trip planner with 11-phase pipeline |
+| [core-reader](https://github.com/ojfbot/core-reader) | Documentation viewer for the core framework |
+| [lean-canvas](https://github.com/ojfbot/lean-canvas) | AI-powered lean canvas business model tool |
+| [gastown-pilot](https://github.com/ojfbot/gastown-pilot) | Multi-agent coordination dashboard |
+| [seh-study](https://github.com/ojfbot/seh-study) | NASA SEH spaced repetition study tool |
+| [daily-logger](https://github.com/ojfbot/daily-logger) | Automated daily dev blog pipeline |
+| [purefoy](https://github.com/ojfbot/purefoy) | Roger Deakins cinematography knowledge base |
+| **MrPlug** | **Chrome extension for AI UI feedback (this repo)** |
+| [frame-ui-components](https://github.com/ojfbot/frame-ui-components) | Shared component library (Carbon DS) |
+
+---
+
 <div align="center">
 
 **Built with ❤️ for developers, designers, and product teams**
