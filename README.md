@@ -17,7 +17,9 @@
 
 ---
 
-MrPlug is a browser extension that enables developers, designers, and project managers to provide natural language feedback on UI elements and automatically generate GitHub issues or apply code fixes through Claude Code integration.
+MrPlug closes the feedback loop between design review and code change. Instead of filing a bug, describing the element, and hoping the developer finds it — point at the element, describe what's wrong, and get a GitHub issue or a code fix in one step.
+
+A Chrome extension that enables developers, designers, and project managers to provide natural language feedback on UI elements and automatically generate GitHub issues or apply code fixes through Claude Code integration.
 
 ## Demo
 
