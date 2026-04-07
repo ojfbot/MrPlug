@@ -53,7 +53,7 @@ beforeAll(async () => {
     stdio: 'pipe',
   });
 
-  relay.stderr?.on('data', (d: Buffer) => {
+  relay.stderr?.on('data', (_d: Buffer) => {
     // Suppress relay logs in test output; uncomment to debug:
     // process.stderr.write(d);
   });

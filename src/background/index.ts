@@ -679,10 +679,6 @@ browser.runtime.onMessage.addListener(async (message: { type: string; [key: stri
       return { success: true, mapping };
     }
 
-    case 'open-settings':
-      await browser.runtime.openOptionsPage();
-      return { success: true };
-
     case 'ping':
       return { pong: true };
 
