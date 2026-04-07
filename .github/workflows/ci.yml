@@ -19,4 +19,4 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm type-check || true  # TODO: fix pre-existing TS errors
-      - run: pnpm test --run
+      - run: pnpm test -- --run
