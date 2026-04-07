@@ -172,7 +172,7 @@ function Options() {
                 <option value="anthropic">Anthropic</option>
               </select>
               <div className="cds-helper-text">
-                Select 'None' to use MrPlug without AI analysis (still captures context)
+                Select &apos;None&apos; to use MrPlug without AI analysis (still captures context)
               </div>
             </div>
 

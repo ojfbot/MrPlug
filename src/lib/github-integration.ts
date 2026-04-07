@@ -16,7 +16,7 @@ export class GitHubIntegration {
 
   private parseRepoUrl(url: string): { owner: string; repo: string } | null {
     // Support formats: "owner/repo", "github.com/owner/repo", "https://github.com/owner/repo"
-    const match = url.match(/(?:github\.com\/)?([^\/]+)\/([^\/\s]+)/);
+    const match = url.match(/(?:github\.com\/)?([^/]+)\/([^/\s]+)/);
     if (!match) return null;
 
     return {
