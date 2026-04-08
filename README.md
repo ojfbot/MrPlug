@@ -7,7 +7,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-20.18.1-green.svg)](https://nodejs.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB.svg)](https://reactjs.org/)
 [![Vite](https://img.shields.io/badge/Vite-5-646CFF.svg)](https://vitejs.dev/)
-[![pnpm](https://img.shields.io/badge/pnpm-8.15.0-orange.svg)](https://pnpm.io/)
+[![pnpm](https://img.shields.io/badge/pnpm-9-orange.svg)](https://pnpm.io/)
 
 **Transform UI feedback into actionable development tasks with AI**
 
@@ -122,7 +122,7 @@ mrplug/
 | Layer | Technology | Purpose |
 |-------|------------|---------|
 | **Runtime** | Node.js 20.18.1 | JavaScript runtime environment |
-| **Package Manager** | pnpm 8.15.0 | Fast, efficient dependency management |
+| **Package Manager** | pnpm 9 | Fast, efficient dependency management |
 | **Language** | TypeScript 5.5 (strict) | Type-safe development |
 | **Build Tool** | Vite 5 | Fast HMR and optimized production builds |
 | **UI Framework** | React 18 | Component-based UI development |
@@ -192,7 +192,7 @@ mrplug/
 ## Prerequisites
 
 - **Node.js**: v20.18.1 (LTS) - managed via fnm
-- **pnpm**: v8.15.0 or higher
+- **pnpm**: v9 or higher (version managed via `packageManager` field in `package.json`)
 - **fnm**: Fast Node Manager (optional but recommended)
 - **Docker**: For containerized development (optional)
 
@@ -214,7 +214,7 @@ curl -fsSL https://fnm.vercel.app/install | bash
 fnm use
 
 # Install pnpm if not already installed
-npm install -g pnpm@8.15.0
+corepack enable
 ```
 
 ### 2. Install Dependencies
