@@ -3,7 +3,7 @@ import { Storage } from '../lib/storage';
 import { AIAgent } from '../lib/ai-agent';
 import { GitHubIntegration } from '../lib/github-integration';
 import { ENV_CONFIG } from '../lib/env';
-import type { AIResponse, ProjectMapping, GitHubIssueData } from '../types';
+import type { AIResponse, ProjectMapping, GitHubIssueData, ElementContext, ExtensionConfig, ConversationMessage } from '../types';
 
 console.log('[MrPlug] Background service worker started');
 
@@ -374,15 +374,19 @@ browser.commands.onCommand.addListener(async (command) => {
 });
 
 // ─── Message handler ─────────────────────────────────────────────────────────
-browser.runtime.onMessage.addListener(async (message: { type: string; [key: string]: unknown }, sender: browser.Runtime.MessageSender) => {
-  console.log('[MrPlug] Received message:', message.type);
+browser.runtime.onMessage.addListener(async (message: unknown, sender: browser.Runtime.MessageSender) => {
+  if (typeof message !== 'object' || message === null || !('type' in message)) {
+    return { error: 'Invalid message format' };
+  }
+  const msg = message as { type: string; [key: string]: unknown };
+  console.log('[MrPlug] Received message:', msg.type);
 
-  switch (message.type) {
+  switch (msg.type) {
     case 'get-config':
       return await Storage.getConfig();
 
     case 'set-config':
-      await Storage.setConfig(message.data);
+      await Storage.setConfig(msg.data as Partial<ExtensionConfig>);
       return { success: true };
 
     case 'get-conversation-history':
@@ -414,9 +418,9 @@ browser.runtime.onMessage.addListener(async (message: { type: string; [key: stri
     }
 
     case 'activate-feedback':
-      if (message.tabId) {
+      if (msg.tabId) {
         try {
-          const response = await browser.tabs.sendMessage(message.tabId, { type: 'toggle-feedback' });
+          const response = await browser.tabs.sendMessage(msg.tabId as number, { type: 'toggle-feedback' });
           return response;
         } catch (error) {
           console.error('[MrPlug] Failed to send message to content script:', error);
@@ -470,17 +474,17 @@ browser.runtime.onMessage.addListener(async (message: { type: string; [key: stri
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              elementContext: message.elementContext,
-              userInput: message.userInput,
-              agentMode: message.agentMode || 'ui',
-              conversationHistory: message.conversationHistory || [],
+              elementContext: msg.elementContext,
+              userInput: msg.userInput,
+              agentMode: msg.agentMode || 'ui',
+              conversationHistory: msg.conversationHistory || [],
             }),
           });
 
           if (res.ok) {
             const json = await res.json() as { success: boolean; data: AIResponse };
             if (json.success) {
-              return injectDefaultAction(json.data, message.pageUrl);
+              return injectDefaultAction(json.data, msg.pageUrl as string | undefined);
             }
           }
           console.warn('[MrPlug] frame-agent non-OK, falling back to direct API');
@@ -503,12 +507,12 @@ browser.runtime.onMessage.addListener(async (message: { type: string; [key: stri
       try {
         const agent = new AIAgent(apiKey);
         const aiResponse = await agent.analyzeFeedback(
-          message.userInput,
-          message.elementContext,
-          message.conversationHistory || [],
-          message.agentMode || 'ui'
+          msg.userInput as string,
+          msg.elementContext as ElementContext,
+          (msg.conversationHistory || []) as ConversationMessage[],
+          (msg.agentMode || 'ui') as 'ui' | 'ux'
         );
-        return injectDefaultAction(aiResponse, message.pageUrl);
+        return injectDefaultAction(aiResponse, msg.pageUrl as string | undefined);
       } catch (err) {
         console.error('[MrPlug] Background AI call failed:', err);
         const failed: AIResponse = {
@@ -530,9 +534,10 @@ browser.runtime.onMessage.addListener(async (message: { type: string; [key: stri
 
       // Resolve repo from page URL using project mappings (MF-aware)
       const mappings = config.projectMappings || DEFAULT_PROJECT_MAPPINGS;
-      const elementCtx = message.elementContext ?? message.issueData?.elementContext;
-      const projectMapping = message.pageUrl
-        ? resolveProjectMapping(message.pageUrl, mappings, config.githubRepo, elementCtx)
+      const issueData = msg.issueData as GitHubIssueData | undefined;
+      const elementCtx = (msg.elementContext ?? issueData?.elementContext) as ElementContext | undefined;
+      const projectMapping = msg.pageUrl
+        ? resolveProjectMapping(msg.pageUrl as string, mappings, config.githubRepo, elementCtx)
         : null;
 
       const repoString = projectMapping?.githubRepo || config.githubRepo;
@@ -542,7 +547,7 @@ browser.runtime.onMessage.addListener(async (message: { type: string; [key: stri
 
       try {
         const gh = new GitHubIntegration(config.githubToken, repoString);
-        const issueData: GitHubIssueData = message.issueData;
+        if (!issueData) return { success: false, error: 'No issue data provided' };
         const result = await gh.createIssue(issueData);
         console.log('[MrPlug] GitHub issue created:', result.url);
         return { success: true, url: result.url, number: result.number, repo: repoString };
@@ -558,7 +563,7 @@ browser.runtime.onMessage.addListener(async (message: { type: string; [key: stri
 
       // Enrich the payload with resolved project mapping so the hook can tell
       // Claude which repo and local path to work in.
-      const rawPayload = message.payload as Record<string, unknown>;
+      const rawPayload = msg.payload as Record<string, unknown>;
       const mappings = config.projectMappings || DEFAULT_PROJECT_MAPPINGS;
       const elemCtx = rawPayload.elementContext as { mfRemoteName?: string; mfRemoteOrigins?: string[] } | undefined;
       const projectMapping = rawPayload.pageUrl
@@ -621,30 +626,30 @@ browser.runtime.onMessage.addListener(async (message: { type: string; [key: stri
       const config = await Storage.getConfig();
       const frameAgentUrl = config.frameAgentUrl || 'http://localhost:4001';
       const mappings = config.projectMappings || DEFAULT_PROJECT_MAPPINGS;
-      const elemCtx = message.elementContext as { mfRemoteName?: string; mfRemoteOrigins?: string[] } | undefined;
-      const pageUrl = message.pageUrl as string | undefined;
+      const elemCtx = msg.elementContext as { mfRemoteName?: string; mfRemoteOrigins?: string[] } | undefined;
+      const pageUrl = msg.pageUrl as string | undefined;
       const projectMapping = pageUrl
         ? resolveProjectMapping(pageUrl, mappings, config.githubRepo, elemCtx)
         : null;
 
-      const aiResponse = message.aiResponse as AIResponse | undefined;
+      const aiResp = msg.aiResponse as AIResponse | undefined;
       const incident = {
         source: 'mrplug' as const,
-        triggerReason: (message.triggerReason as string) || 'manual_review',
-        shortTitle: aiResponse?.issueTitle || (message.shortTitle as string) || 'MrPlug finding',
-        contextSummary: aiResponse?.analysis || (message.contextSummary as string) || '',
+        triggerReason: (msg.triggerReason as string) || 'manual_review',
+        shortTitle: aiResp?.issueTitle || (msg.shortTitle as string) || 'MrPlug finding',
+        contextSummary: aiResp?.analysis || (msg.contextSummary as string) || '',
         repo: projectMapping?.githubRepo?.split('/')[1] ?? undefined,
-        filePath: (message.filePath as string) ?? undefined,
+        filePath: (msg.filePath as string) ?? undefined,
         localPath: projectMapping?.localPath ?? undefined,
-        suggestedActions: aiResponse?.suggestedActions?.map(a => ({
+        suggestedActions: aiResp?.suggestedActions?.map((a: { type: string; title: string; description: string; priority: string }) => ({
           type: a.type,
           title: a.title,
           description: a.description,
           priority: a.priority,
         })),
-        requiresCodeChange: aiResponse?.requiresCodeChange,
-        confidence: aiResponse?.confidence,
-        acceptanceCriteria: aiResponse?.acceptanceCriteria,
+        requiresCodeChange: aiResp?.requiresCodeChange,
+        confidence: aiResp?.confidence,
+        acceptanceCriteria: aiResp?.acceptanceCriteria,
       };
 
       try {
@@ -673,8 +678,8 @@ browser.runtime.onMessage.addListener(async (message: { type: string; [key: stri
       // Content script can ask: "what project is this page?"
       const config = await Storage.getConfig();
       const mappings = config.projectMappings || DEFAULT_PROJECT_MAPPINGS;
-      const mapping = message.pageUrl
-        ? resolveProjectMapping(message.pageUrl, mappings, config.githubRepo, message.elementContext)
+      const mapping = msg.pageUrl
+        ? resolveProjectMapping(msg.pageUrl as string, mappings, config.githubRepo, msg.elementContext as ElementContext | undefined)
         : null;
       return { success: true, mapping };
     }
@@ -683,7 +688,7 @@ browser.runtime.onMessage.addListener(async (message: { type: string; [key: stri
       return { pong: true };
 
     default:
-      console.warn('[MrPlug] Unknown message type:', message.type);
+      console.warn('[MrPlug] Unknown message type:', msg.type);
       return { error: 'Unknown message type' };
   }
 });

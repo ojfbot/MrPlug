@@ -4,6 +4,10 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    environmentMatchGlobs: [
+      ['src/lib/__tests__/element-capture.test.ts', 'happy-dom'],
+      ['src/lib/__tests__/storage.test.ts', 'happy-dom'],
+    ],
     exclude: [
       'e2e/**',
       'node_modules/**',

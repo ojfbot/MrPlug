@@ -142,7 +142,7 @@ ${baseStructure}`;
       .join('\n');
 
     const parentContext = elementContext.parentContext
-      ? `Parent Context:\n- Tag: ${this.sanitizeDOMContent(elementContext.parentContext.tagName)}\n- Classes: ${(elementContext.parentContext.classList ?? []).map(c => this.sanitizeDOMContent(c)).join(', ') || 'none'}\n`
+      ? `Parent Context:\n- Tag: ${this.sanitizeDOMContent(elementContext.parentContext.tagName ?? '')}\n- Classes: ${(elementContext.parentContext.classList ?? []).map(c => this.sanitizeDOMContent(c)).join(', ') || 'none'}\n`
       : '';
 
     return `User Feedback: "${safeInput}"
