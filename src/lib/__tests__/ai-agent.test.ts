@@ -68,12 +68,11 @@ describe('AIAgent', () => {
       // User action: AI returns plain text instead of JSON
       const plainTextResponse = 'The button should be larger and have more padding.';
 
-      // Expected result: fallback to manual action
+      // Expected result: plain text used as analysis, no suggested actions
       const parsed = (agent as any).parseResponse(plainTextResponse);
 
       expect(parsed.analysis).toBe(plainTextResponse);
-      expect(parsed.suggestedActions).toHaveLength(1);
-      expect(parsed.suggestedActions[0].type).toBe('manual');
+      expect(parsed.suggestedActions).toHaveLength(0);
       expect(parsed.confidence).toBeLessThan(0.5);
     });
 
